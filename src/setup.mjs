@@ -410,7 +410,9 @@ export async function runSetup() {
       runTower(terminal, denoExecutable, []);
       return;
     }
-    process.stdout.write("Start later with: npx --yes --package=. signal-control-tower run\n");
+    process.stdout.write(
+      "Start later with: npx --yes github:PJensen/signal-control-tower run\n",
+    );
   } finally {
     terminal.close();
   }

@@ -4,14 +4,18 @@ Signal Control Tower is a small daemon that turns commands from an allow-listed 
 isolated Codex work items. It tracks work locally and supports status, cancellation, publication,
 deployment, feature capture, and activity summaries.
 
-## Interactive laptop setup
+## One-command laptop setup
 
-From this repository's root, use Node 22 and run the local NPX package:
+With Node 22 active, run this from the directory where you want the tower's local configuration and
+state to live:
 
 ```bash
 nvm use
-npx --yes --package=. signal-control-tower setup
+npx --yes github:PJensen/signal-control-tower setup
 ```
+
+NPX fetches the package directly from GitHub; cloning or globally installing Signal Control Tower is
+not required.
 
 The setup checks or installs Deno, `signal-cli`, `qrencode`, and Codex; links Signal with a terminal
 QR plus an ignored `.signal-control-tower/signal-link.png`; discovers the Signal account and
@@ -25,8 +29,8 @@ Git, and project credentials.
 After setup:
 
 ```bash
-npx --yes --package=. signal-control-tower doctor
-npx --yes --package=. signal-control-tower run
+npx --yes github:PJensen/signal-control-tower doctor
+npx --yes github:PJensen/signal-control-tower run
 ```
 
 ## Manual setup
