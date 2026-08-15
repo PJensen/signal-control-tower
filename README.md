@@ -4,15 +4,32 @@ Signal Control Tower is a small daemon that turns commands from an allow-listed 
 isolated Codex work items. It tracks work locally and supports status, cancellation, publication,
 deployment, feature capture, and activity summaries.
 
-## Requirements
+## Interactive laptop setup
 
-- [Deno](https://deno.com/) 2.x
-- `signal-cli`, registered for the configured Signal account
-- Codex CLI
-- Git checkouts for every configured project
-- Entire CLI when `/activity` is enabled
+From this repository's root, use Node 22 and run the local NPX package:
 
-## Set up
+```bash
+nvm use
+npx --yes --package=. signal-control-tower setup
+```
+
+The setup checks or installs Deno, `signal-cli`, `qrencode`, and Codex; links Signal with a terminal
+QR plus an ignored `.signal-control-tower/signal-link.png`; discovers the Signal account and
+defaults to the `MFIQ.ai` group; verifies the MFIQ checkout; authenticates Codex; creates an
+owner-only `signal-control-tower.json`; and runs the end-to-end doctor. It prompts before `sudo`,
+login, config replacement, Git-hook changes, or enabling `/publish` and `/deploy`.
+
+Nothing is deployed. The long-lived runner executes on this laptop using its local Signal, Codex,
+Git, and project credentials.
+
+After setup:
+
+```bash
+npx --yes --package=. signal-control-tower doctor
+npx --yes --package=. signal-control-tower run
+```
+
+## Manual setup
 
 1. Copy `signal-control-tower.example.json` to `signal-control-tower.json`.
 2. Replace the Signal account, group, sender, and project values.
@@ -23,6 +40,9 @@ deployment, feature capture, and activity summaries.
 
 The runtime config and `.signal-control-tower/` state are intentionally ignored by Git because they
 can contain local paths and operational metadata.
+
+Manual requirements are Deno 2.x, a linked `signal-cli`, an authenticated Codex CLI, the configured
+Git checkout, and optionally Entire for `/activity`.
 
 ## Signal commands
 

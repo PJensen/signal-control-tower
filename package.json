@@ -1,0 +1,18 @@
+{
+  "name": "signal-control-tower",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "bin": {
+    "signal-control-tower": "bin/signal-control-tower.mjs"
+  },
+  "files": [
+    "bin/",
+    "src/",
+    "signal-control-tower.example.json",
+    "README.md"
+  ],
+  "engines": {
+    "node": ">=22"
+  }
+}

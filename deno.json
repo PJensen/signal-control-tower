@@ -1,4 +1,5 @@
 {
+  "nodeModulesDir": "none",
   "tasks": {
     "start": "deno run --allow-read --allow-write --allow-run --allow-env src/main.ts",
     "doctor": "deno run --allow-read --allow-write --allow-run --allow-env src/main.ts --doctor",
