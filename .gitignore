@@ -1,0 +1,7 @@
+.signal-control-tower/
+signal-control-tower.json
+.env
+.DS_Store
+coverage/
+dist/
+*.log

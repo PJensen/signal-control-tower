@@ -1,0 +1,30 @@
+{
+  "signal": {
+    "account": "+15555550100",
+    "groupId": "replace-with-signal-group-id",
+    "groupName": "Signal Control Tower",
+    "allowedSenders": ["+15555550101"],
+    "executable": "signal-cli"
+  },
+  "codex": {
+    "executable": "codex",
+    "extraArgs": []
+  },
+  "activity": {
+    "executable": "entire"
+  },
+  "stateDirectory": ".signal-control-tower",
+  "projects": {
+    "app": {
+      "path": "../app",
+      "allowWrite": true,
+      "baseRef": "main",
+      "isolatedWorktree": true,
+      "release": {
+        "publishRemote": "origin",
+        "validateCommand": ["npm", "run", "validate"],
+        "deployCommand": ["npm", "run", "deploy"]
+      }
+    }
+  }
+}
