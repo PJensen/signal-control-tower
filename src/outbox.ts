@@ -1,4 +1,4 @@
-import { mkdir, readdir, readFile, rename, unlink } from "node:fs/promises";
+import { mkdir, readdir, readFile, rename, rm, unlink } from "node:fs/promises";
 import { join } from "node:path";
 import { clearInterval, setInterval } from "node:timers";
 
@@ -28,9 +28,15 @@ interface SignalDispatchEvent {
   createdAt: string;
   title?: string;
   body: string;
+  attachments: string[];
 }
 
-type OutboxNotifier = (message: string) => void | Promise<void>;
+export interface OutboxDelivery {
+  message: string;
+  attachments: string[];
+}
+
+type OutboxNotifier = (delivery: OutboxDelivery) => void | Promise<void>;
 
 function object(value: unknown): Record<string, unknown> | undefined {
   return typeof value === "object" && value !== null && !Array.isArray(value)
@@ -82,12 +88,17 @@ function parseSignalDispatchEvent(value: unknown): SignalDispatchEvent {
   if (event?.version !== 1 || event.kind !== "signal-dispatch") {
     throw new Error("Unsupported outbox event");
   }
+  const attachments = event.attachments === undefined ? [] : event.attachments;
+  if (!Array.isArray(attachments) || attachments.length > 5) {
+    throw new Error("Invalid dispatch attachments");
+  }
   return {
     version: 1,
     kind: "signal-dispatch",
     createdAt: text(event.createdAt, "dispatch creation time"),
     ...(event.title === undefined ? {} : { title: text(event.title, "dispatch title") }),
     body: text(event.body, "dispatch body", 500_000),
+    attachments: attachments.map((attachment) => text(attachment, "dispatch attachment", 4_096)),
   };
 }
 
@@ -118,6 +129,15 @@ export function formatOutboxEvent(value: unknown): string {
     return dispatch.title ? `${dispatch.title}\n\n${dispatch.body}` : dispatch.body;
   }
   throw new Error("Unsupported outbox event");
+}
+
+export function outboxDelivery(value: unknown): OutboxDelivery {
+  const event = object(value);
+  if (event?.kind === "signal-dispatch") {
+    const dispatch = parseSignalDispatchEvent(value);
+    return { message: formatOutboxEvent(value), attachments: dispatch.attachments };
+  }
+  return { message: formatOutboxEvent(value), attachments: [] };
 }
 
 export class SignalOutbox {
@@ -157,8 +177,9 @@ export class SignalOutbox {
         const path = join(this.#directory, file);
         try {
           const event = JSON.parse(await readFile(path, "utf8")) as unknown;
-          await this.#notify(formatOutboxEvent(event));
+          await this.#notify(outboxDelivery(event));
           await unlink(path);
+          await rm(`${path}.attachments`, { recursive: true, force: true });
         } catch (error) {
           if (
             error instanceof SyntaxError || (error as Error).message.startsWith("Invalid") ||

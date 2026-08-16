@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
-import { mkdir, rename, writeFile } from "node:fs/promises";
-import { join } from "node:path";
+import { copyFile, lstat, mkdir, rename, writeFile } from "node:fs/promises";
+import { basename, join } from "node:path";
 
 export interface QueuedSignalDispatch {
   id: string;
@@ -11,6 +11,7 @@ export async function queueSignalDispatch(
   stateDirectory: string,
   body: string,
   title?: string,
+  attachmentPath?: string,
 ): Promise<QueuedSignalDispatch> {
   const normalizedBody = body.trim();
   if (!normalizedBody) throw new Error("The dispatch body is empty.");
@@ -29,12 +30,26 @@ export async function queueSignalDispatch(
   const filename = `${id}.json`;
   const path = join(directory, filename);
   const temporaryPath = join(directory, `.${filename}.tmp`);
+  const attachments: string[] = [];
+  if (attachmentPath) {
+    const source = await lstat(attachmentPath);
+    if (!source.isFile()) throw new Error("The dispatch attachment must be a regular file.");
+    if (source.size > 25 * 1024 * 1024) {
+      throw new Error("The dispatch attachment exceeds 25 MB.");
+    }
+    const attachmentDirectory = `${path}.attachments`;
+    await mkdir(attachmentDirectory, { mode: 0o700 });
+    const spooledPath = join(attachmentDirectory, basename(attachmentPath));
+    await copyFile(attachmentPath, spooledPath);
+    attachments.push(spooledPath);
+  }
   const event = {
     version: 1,
     kind: "signal-dispatch",
     createdAt,
     ...(normalizedTitle ? { title: normalizedTitle } : {}),
     body: normalizedBody,
+    attachments,
   };
   await writeFile(temporaryPath, `${JSON.stringify(event)}\n`, {
     encoding: "utf8",

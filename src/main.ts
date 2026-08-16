@@ -462,8 +462,14 @@ async function run(): Promise<void> {
     return;
   }
 
-  const outbox = new SignalOutbox(join(config.stateDirectory, "outbox"), async (message) => {
-    for (const block of activityMessageBlocks(message)) await signal.sendGroupMessage(block);
+  const outbox = new SignalOutbox(join(config.stateDirectory, "outbox"), async (delivery) => {
+    if (delivery.attachments.length) {
+      await signal.sendGroupAttachments(delivery.message, delivery.attachments);
+      return;
+    }
+    for (const block of activityMessageBlocks(delivery.message)) {
+      await signal.sendGroupMessage(block);
+    }
   });
   await outbox.start();
 

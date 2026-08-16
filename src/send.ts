@@ -1,4 +1,4 @@
-import { readFile } from "node:fs/promises";
+import { basename } from "node:path";
 
 import { loadConfig } from "./config.ts";
 import { queueSignalDispatch } from "./dispatch.ts";
@@ -23,19 +23,24 @@ function options(args: string[]): SendOptions {
       else parsed.title = value;
     } else if (argument === "--help" || argument === "-h") {
       process.stdout.write(
-        "Usage: signal-control-tower send (--file PATH | --message TEXT) [--title TEXT] [--config PATH]\n",
+        "Usage: signal-control-tower send [--file PATH] [--message TEXT] [--title TEXT] [--config PATH]\n",
       );
       process.exit(0);
     } else throw new Error(`Unknown argument: ${String(argument)}`);
   }
-  if (Boolean(parsed.file) === Boolean(parsed.message)) {
-    throw new Error("Specify exactly one of --file or --message.");
+  if (!parsed.file && !parsed.message) {
+    throw new Error("Specify --file, --message, or both.");
   }
   return parsed;
 }
 
 const selected = options(process.argv.slice(2));
 const config = await loadConfig(selected.configPath);
-const body = selected.file ? await readFile(selected.file, "utf8") : selected.message ?? "";
-const queued = await queueSignalDispatch(config.stateDirectory, body, selected.title);
+const body = selected.message ?? `Attached file: ${basename(selected.file ?? "file")}`;
+const queued = await queueSignalDispatch(
+  config.stateDirectory,
+  body,
+  selected.title,
+  selected.file,
+);
 process.stdout.write(`Queued Signal dispatch ${queued.id}\n`);

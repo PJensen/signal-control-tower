@@ -40,9 +40,9 @@ runner's durable outbox:
 npx --yes github:PJensen/signal-control-tower send --file report.md --title "Underwriting architecture"
 ```
 
-The command does not open another Signal connection. The running tower delivers the dispatch in
-ordered, Signal-safe blocks and retains it for retry if delivery fails. Use `--message` instead of
-`--file` for short text.
+The command does not open another Signal connection. `--file` sends a real attachment; `--message`
+sends text, and the two may be combined to add a caption. The running tower retains the dispatch for
+retry if delivery fails and splits long text-only dispatches into ordered, Signal-safe blocks.
 
 ## Manual setup
 
