@@ -73,6 +73,9 @@ own line in the final response. This also works for `/ask`, but `/ask` may only 
 file because it remains read-only. At most five regular files of 25 MB each are accepted, and paths
 or symlinks that escape the task workspace are rejected.
 
+Long Codex answers and activity dispatches are retained in full and delivered as ordered,
+Signal-safe message blocks rather than truncated.
+
 ## Development and release
 
 Run `deno task validate` before merging or tagging. Keep user-visible changes in `CHANGELOG.md`,

@@ -377,7 +377,9 @@ async function run(): Promise<void> {
         }…\nid: ${item.id}`,
       );
     } else if (event.kind === "completed") {
-      await signal.sendGroupMessage(completion(item, event.result));
+      for (const block of activityMessageBlocks(completion(item, event.result))) {
+        await signal.sendGroupMessage(block);
+      }
       if (event.result.artifactPaths?.length) {
         try {
           const project = config.projects[item.project];

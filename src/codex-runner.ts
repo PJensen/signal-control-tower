@@ -51,6 +51,10 @@ function truncate(value: string, length = 1500): string {
   return trimmed.length <= length ? trimmed : `${trimmed.slice(0, length - 1)}…`;
 }
 
+export function finalSummary(value: string, fallback: string): string {
+  return value.trim() || fallback;
+}
+
 async function git(projectPath: string, args: string[]): Promise<string> {
   const { stdout } = await execFileAsync("git", ["-C", projectPath, ...args], {
     encoding: "utf8",
@@ -175,7 +179,7 @@ export class CodexWorkQueue {
     );
     if (item.mode === "question") {
       return {
-        summary: truncate(artifacts.summary || "Codex completed without a final answer."),
+        summary: finalSummary(artifacts.summary, "Codex completed without a final answer."),
         ...(artifacts.paths.length > 0 ? { artifactPaths: artifacts.paths } : {}),
         filesChanged: 0,
         ...(codex.threadId ? { threadId: codex.threadId } : {}),
@@ -190,7 +194,7 @@ export class CodexWorkQueue {
     ]);
 
     const result: WorkItemResult = {
-      summary: truncate(artifacts.summary || "Codex completed without a final summary."),
+      summary: finalSummary(artifacts.summary, "Codex completed without a final summary."),
       ...(artifacts.paths.length > 0 ? { artifactPaths: artifacts.paths } : {}),
       filesChanged: files.size,
       ...(finalCommit !== baseCommit ? { commit: finalCommit.slice(0, 12) } : {}),

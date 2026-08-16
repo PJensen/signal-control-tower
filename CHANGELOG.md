@@ -17,3 +17,4 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 ### Changed
 
 - Renamed the project to Signal Control Tower.
+- Preserve complete Codex answers and deliver long responses as ordered Signal-safe messages.
