@@ -34,6 +34,7 @@ export interface WorkItem {
 
 export interface WorkItemResult {
   summary: string;
+  artifactPaths?: string[];
   commit?: string;
   filesChanged?: number;
   threadId?: string;

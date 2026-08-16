@@ -6,6 +6,7 @@ import { join } from "node:path";
 import { promisify } from "node:util";
 
 import { activityMessageBlocks, generateActivityDispatch } from "./activity.ts";
+import { validateArtifactPaths } from "./artifacts.ts";
 import { CodexWorkQueue } from "./codex-runner.ts";
 import { loadConfig } from "./config.ts";
 import { recordFeatureRequest } from "./feature-request.ts";
@@ -377,6 +378,57 @@ async function run(): Promise<void> {
       );
     } else if (event.kind === "completed") {
       await signal.sendGroupMessage(completion(item, event.result));
+      if (event.result.artifactPaths?.length) {
+        try {
+          const project = config.projects[item.project];
+          if (!project) throw new Error(`Project ${item.project} is no longer configured.`);
+          const workspace = project.isolatedWorktree && item.branch
+            ? join(config.stateDirectory, "worktrees", item.id)
+            : project.path;
+          const attachments = await validateArtifactPaths(workspace, event.result.artifactPaths);
+          await signal.sendGroupAttachments(`Artifacts from ${item.id}`, attachments);
+        } catch (error) {
+          await signal.sendGroupMessage(
+            `✗ could not send attachments\nid: ${item.id}\n${
+              (error as Error).message.slice(0, 1500)
+            }`,
+          );
+        }
+      }
+      if (item.mode !== "question" && config.projects[item.project]?.release) {
+        try {
+          await signal.sendGroupMessage(`Validating and publishing…\nid: ${item.id}`);
+          const record = store.get(item.id);
+          if (!record) throw new Error(`Work item ${item.id} disappeared from the store.`);
+          const publication = await releases.publish(record);
+          const published = await store.update(item.id, { publication });
+          await signal.sendGroupMessage([
+            "✓ validated and published",
+            `id: ${item.id}`,
+            `branch: ${publication.remote}/${publication.branch}`,
+            `commit: ${publication.commit.slice(0, 12)}`,
+          ].join("\n"));
+
+          if (config.projects[item.project]?.release?.deployCommand) {
+            await signal.sendGroupMessage(`Deploying to production…\nid: ${item.id}`);
+            const deployed = await releases.deploy(published);
+            await store.update(item.id, { deployment: deployed.deployment });
+            await signal.sendGroupMessage([
+              "✓ deployed to production",
+              `id: ${item.id}`,
+              `commit: ${deployed.deployment.commit.slice(0, 12)}`,
+              ...(deployed.output ? [deployed.output.slice(0, 1200)] : []),
+            ].join("\n"));
+          }
+        } catch (error) {
+          await signal.sendGroupMessage([
+            "✗ automatic release stopped",
+            `id: ${item.id}`,
+            (error as Error).message.slice(0, 1500),
+            "The completed work is retained; use /publish or /deploy to retry.",
+          ].join("\n"));
+        }
+      }
     } else if (event.kind === "cancelled") {
       await signal.sendGroupMessage(`Cancelled: ${item.id}`);
     } else {

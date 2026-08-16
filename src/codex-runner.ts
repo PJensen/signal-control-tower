@@ -5,6 +5,7 @@ import { setTimeout } from "node:timers";
 import { promisify } from "node:util";
 
 import { buildCodexArguments } from "./codex-arguments.ts";
+import { extractArtifactDeclarations } from "./artifacts.ts";
 import { WorkItemStore } from "./store.ts";
 import type { IntakeConfig, ProjectConfig, WorkItem, WorkItemResult } from "./types.ts";
 
@@ -37,6 +38,7 @@ function taskPrompt(item: WorkItem): string {
       ]
       : []),
     "Do not wait for interactive approval; report any action that cannot be completed safely.",
+    "To send a file back to Signal, put `ATTACHMENT: relative/path` on its own line in your final response. Only nominate files the user requested or that materially help answer the request.",
     attachmentNote,
     "",
     "User instruction:",
@@ -168,9 +170,13 @@ export class CodexWorkQueue {
     await this.#emit(item, { kind: "started", workspace });
 
     const codex = await this.#executeCodex(item, project, workspace);
+    const artifacts = extractArtifactDeclarations(
+      codex.summary || "Codex completed without a final answer.",
+    );
     if (item.mode === "question") {
       return {
-        summary: truncate(codex.summary || "Codex completed without a final answer."),
+        summary: truncate(artifacts.summary || "Codex completed without a final answer."),
+        ...(artifacts.paths.length > 0 ? { artifactPaths: artifacts.paths } : {}),
         filesChanged: 0,
         ...(codex.threadId ? { threadId: codex.threadId } : {}),
       };
@@ -184,7 +190,8 @@ export class CodexWorkQueue {
     ]);
 
     const result: WorkItemResult = {
-      summary: truncate(codex.summary || "Codex completed without a final summary."),
+      summary: truncate(artifacts.summary || "Codex completed without a final summary."),
+      ...(artifacts.paths.length > 0 ? { artifactPaths: artifacts.paths } : {}),
       filesChanged: files.size,
       ...(finalCommit !== baseCommit ? { commit: finalCommit.slice(0, 12) } : {}),
       ...(codex.threadId ? { threadId: codex.threadId } : {}),

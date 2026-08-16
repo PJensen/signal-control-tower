@@ -78,6 +78,10 @@ export class SignalJsonRpc {
     await this.request("send", { groupId: this.#config.groupId, message });
   }
 
+  async sendGroupAttachments(message: string, attachments: string[]): Promise<void> {
+    await this.request("send", { groupId: this.#config.groupId, message, attachments });
+  }
+
   stop(): void {
     this.#child?.kill("SIGTERM");
   }

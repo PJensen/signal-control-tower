@@ -4,7 +4,7 @@
     "start": "deno run --allow-read --allow-write --allow-run --allow-env src/main.ts",
     "doctor": "deno run --allow-read --allow-write --allow-run --allow-env src/main.ts --doctor",
     "check": "deno fmt --check && deno lint && deno check src/main.ts",
-    "test": "deno test tests",
+    "test": "deno test --allow-read --allow-write tests",
     "validate": "deno task check && deno task test"
   },
   "fmt": {

@@ -64,7 +64,14 @@ Git checkout, and optionally Entire for `/activity`.
 | `/help`              | Show the command card.                                                    |
 
 Only configured senders in the configured group are accepted. Write tasks use isolated Git worktrees
-by default; questions are always executed in a read-only sandbox.
+by default; questions are always executed in a read-only sandbox. A successful write task
+automatically validates, commits, pushes, and deploys when its project has release configuration;
+manual `/publish` and `/deploy` commands remain available for retries.
+
+Codex can return requested workspace files to Signal by putting `ATTACHMENT: relative/path` on its
+own line in the final response. This also works for `/ask`, but `/ask` may only return an existing
+file because it remains read-only. At most five regular files of 25 MB each are accepted, and paths
+or symlinks that escape the task workspace are rejected.
 
 ## Development and release
 
