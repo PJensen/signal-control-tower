@@ -22,6 +22,14 @@ interface GitPrePushEvent {
   updates: GitUpdate[];
 }
 
+interface SignalDispatchEvent {
+  version: 1;
+  kind: "signal-dispatch";
+  createdAt: string;
+  title?: string;
+  body: string;
+}
+
 type OutboxNotifier = (message: string) => void | Promise<void>;
 
 function object(value: unknown): Record<string, unknown> | undefined {
@@ -37,7 +45,7 @@ function text(value: unknown, label: string, maximum = 500): string {
   return value;
 }
 
-function parseEvent(value: unknown): GitPrePushEvent {
+function parseGitPrePushEvent(value: unknown): GitPrePushEvent {
   const event = object(value);
   if (event?.version !== 1 || event.kind !== "git-pre-push" || !Array.isArray(event.updates)) {
     throw new Error("Unsupported outbox event");
@@ -69,12 +77,26 @@ function parseEvent(value: unknown): GitPrePushEvent {
   };
 }
 
+function parseSignalDispatchEvent(value: unknown): SignalDispatchEvent {
+  const event = object(value);
+  if (event?.version !== 1 || event.kind !== "signal-dispatch") {
+    throw new Error("Unsupported outbox event");
+  }
+  return {
+    version: 1,
+    kind: "signal-dispatch",
+    createdAt: text(event.createdAt, "dispatch creation time"),
+    ...(event.title === undefined ? {} : { title: text(event.title, "dispatch title") }),
+    body: text(event.body, "dispatch body", 500_000),
+  };
+}
+
 function shortRef(value: string): string {
   return value.replace(/^refs\/(?:heads|tags)\//u, "");
 }
 
 export function formatGitPrePushEvent(value: unknown): string {
-  const event = parseEvent(value);
+  const event = parseGitPrePushEvent(value);
   const lines = [
     "⬆️ Git push starting",
     `repo: ${event.repository}`,
@@ -86,6 +108,16 @@ export function formatGitPrePushEvent(value: unknown): string {
     for (const commit of update.commits) lines.push(`• ${commit.shortOid} ${commit.subject}`);
   }
   return lines.join("\n");
+}
+
+export function formatOutboxEvent(value: unknown): string {
+  const event = object(value);
+  if (event?.kind === "git-pre-push") return formatGitPrePushEvent(value);
+  if (event?.kind === "signal-dispatch") {
+    const dispatch = parseSignalDispatchEvent(value);
+    return dispatch.title ? `${dispatch.title}\n\n${dispatch.body}` : dispatch.body;
+  }
+  throw new Error("Unsupported outbox event");
 }
 
 export class SignalOutbox {
@@ -125,7 +157,7 @@ export class SignalOutbox {
         const path = join(this.#directory, file);
         try {
           const event = JSON.parse(await readFile(path, "utf8")) as unknown;
-          await this.#notify(formatGitPrePushEvent(event));
+          await this.#notify(formatOutboxEvent(event));
           await unlink(path);
         } catch (error) {
           if (

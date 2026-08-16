@@ -34,6 +34,7 @@ if (["help", "--help", "-h"].includes(command)) {
     "  signal-control-tower setup   Provision and configure this laptop interactively",
     "  signal-control-tower doctor  Validate an existing configuration",
     "  signal-control-tower run     Start the local Signal runner",
+    "  signal-control-tower send    Queue a message or document for the configured group",
     "",
   ].join("\n"));
   process.exit(0);
@@ -46,17 +47,18 @@ if (command === "setup") {
     env: process.env,
     stdio: "inherit",
   });
-} else if (command === "doctor" || command === "run") {
+} else if (command === "doctor" || command === "run" || command === "send") {
   const deno = executable("deno");
   if (!deno) {
     process.stderr.write("Deno is missing. Run: signal-control-tower setup\n");
     process.exit(1);
   }
   const permissions = ["--allow-read", "--allow-write", "--allow-run", "--allow-env"];
+  const entrypoint = command === "send" ? "src/send.ts" : "src/main.ts";
   const modeArgs = command === "doctor" ? ["--doctor", ...args] : args;
   child = spawnSync(
     deno,
-    ["run", ...permissions, resolve(packageRoot, "src/main.ts"), ...modeArgs],
+    ["run", ...permissions, resolve(packageRoot, entrypoint), ...modeArgs],
     {
       cwd: process.cwd(),
       env: process.env,

@@ -9,6 +9,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Added
 
+- A durable `send` command for dispatching local messages and Markdown documents to the configured
+  Signal group through the running tower.
 - Initial Signal-to-Codex control daemon.
 - Interactive NPX bootstrap for provisioning Signal, Codex, Deno, the MFIQ project, and local
   runtime configuration.

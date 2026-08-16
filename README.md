@@ -33,6 +33,17 @@ npx --yes github:PJensen/signal-control-tower doctor
 npx --yes github:PJensen/signal-control-tower run
 ```
 
+Local tools can queue a message or Markdown document for the configured Signal group through the
+runner's durable outbox:
+
+```bash
+npx --yes github:PJensen/signal-control-tower send --file report.md --title "Underwriting architecture"
+```
+
+The command does not open another Signal connection. The running tower delivers the dispatch in
+ordered, Signal-safe blocks and retains it for retry if delivery fails. Use `--message` instead of
+`--file` for short text.
+
 ## Manual setup
 
 1. Copy `signal-control-tower.example.json` to `signal-control-tower.json`.
