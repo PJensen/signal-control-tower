@@ -64,6 +64,25 @@ export class WorkItemStore {
     return next;
   }
 
+  async interruptActiveQueue(): Promise<WorkItemRecord[]> {
+    const interruptedAt = new Date().toISOString();
+    const interrupted = this.all().filter((record) =>
+      record.status === "queued" || record.status === "running"
+    ).map((record) => ({
+      ...record,
+      status: "interrupted" as const,
+      updatedAt: interruptedAt,
+      error: record.status === "queued"
+        ? "The intake daemon restarted before this item began; it was not resumed automatically."
+        : "The intake daemon stopped while this item was running; it was not resumed automatically.",
+    }));
+    if (!interrupted.length) return interrupted;
+
+    for (const record of interrupted) this.#records.set(record.item.id, record);
+    await this.#persist();
+    return interrupted;
+  }
+
   async #persist(): Promise<void> {
     const state: PersistedState = { version: 1, records: this.all() };
     const temporary = `${this.#path}.tmp`;

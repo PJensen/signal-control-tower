@@ -54,11 +54,13 @@ function projectConfig(value: unknown, key: string, base: string): ProjectConfig
   if (deployCommand?.length === 0) {
     throw new Error(`projects.${key}.release.deployCommand must not be empty`);
   }
-  const validateCommand = release?.validateCommand === undefined
-    ? ["npm", "run", "validate"]
-    : optionalStringArray(release.validateCommand, `projects.${key}.release.validateCommand`);
+  const validateCommand = project.validateCommand === undefined
+    ? release?.validateCommand === undefined
+      ? ["npm", "run", "validate"]
+      : optionalStringArray(release.validateCommand, `projects.${key}.release.validateCommand`)
+    : optionalStringArray(project.validateCommand, `projects.${key}.validateCommand`);
   if (validateCommand.length === 0) {
-    throw new Error(`projects.${key}.release.validateCommand must not be empty`);
+    throw new Error(`projects.${key}.validateCommand must not be empty`);
   }
   return {
     path: resolveFrom(base, requiredString(project.path, `projects.${key}.path`)),
@@ -69,6 +71,7 @@ function projectConfig(value: unknown, key: string, base: string): ProjectConfig
       true,
       `projects.${key}.isolatedWorktree`,
     ),
+    validateCommand,
     ...(release
       ? {
         release: {
@@ -77,7 +80,6 @@ function projectConfig(value: unknown, key: string, base: string): ProjectConfig
             "origin",
             `projects.${key}.release.publishRemote`,
           ),
-          validateCommand,
           ...(deployCommand ? { deployCommand } : {}),
         },
       }
@@ -91,7 +93,7 @@ export async function loadConfig(configPath: string): Promise<IntakeConfig> {
   const root = object(JSON.parse(await readFile(absolutePath, "utf8")) as unknown, "config");
   const signal = object(root.signal, "signal");
   const codex = object(root.codex ?? {}, "codex");
-  const activity = object(root.activity ?? {}, "activity");
+  const entire = object(root.entire ?? {}, "entire");
   const projectsInput = object(root.projects, "projects");
   const projects = Object.fromEntries(
     Object.entries(projectsInput).map(([key, value]) => {
@@ -121,9 +123,11 @@ export async function loadConfig(configPath: string): Promise<IntakeConfig> {
       extraArgs: codex.extraArgs === undefined
         ? []
         : optionalStringArray(codex.extraArgs, "codex.extraArgs"),
+      model: optionalString(codex.model, "gpt-5.6-terra", "codex.model"),
+      reasoningEffort: optionalString(codex.reasoningEffort, "medium", "codex.reasoningEffort"),
     },
-    activity: {
-      executable: optionalString(activity.executable, "entire", "activity.executable"),
+    entire: {
+      executable: optionalString(entire.executable, "entire", "entire.executable"),
     },
     stateDirectory: resolveFrom(
       base,

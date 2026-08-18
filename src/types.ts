@@ -11,6 +11,7 @@ export interface WorkItemAttachment {
   filename?: string;
   contentType?: string;
   size?: number;
+  path?: string;
 }
 
 export interface WorkItemSource {
@@ -67,9 +68,9 @@ export interface ProjectConfig {
   allowWrite: boolean;
   baseRef: string;
   isolatedWorktree: boolean;
+  validateCommand: string[];
   release?: {
     publishRemote: string;
-    validateCommand: string[];
     deployCommand?: string[];
   };
 }
@@ -86,8 +87,10 @@ export interface IntakeConfig {
   codex: {
     executable: string;
     extraArgs: string[];
+    model: string;
+    reasoningEffort: string;
   };
-  activity: {
+  entire: {
     executable: string;
   };
   stateDirectory: string;
@@ -110,7 +113,13 @@ export type IntakeCommand =
   | { kind: "publish"; id: string }
   | { kind: "deploy"; id: string }
   | { kind: "feature"; request: string }
-  | { kind: "activity"; args: string[] }
+  | {
+    kind: "capture";
+    action: "start" | "status" | "done" | "cancel";
+    project?: string;
+    title?: string;
+  }
+  | { kind: "dispatch"; args: string[] }
   | { kind: "context"; project?: string }
   | { kind: "help" }
   | { kind: "ignore" }

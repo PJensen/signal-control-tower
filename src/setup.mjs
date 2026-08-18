@@ -49,8 +49,13 @@ export function createSetupConfig(input) {
       allowedSenders: [input.allowedSender],
       executable: input.signalExecutable,
     },
-    codex: { executable: input.codexExecutable, extraArgs: [] },
-    activity: { executable: input.activityExecutable },
+    codex: {
+      executable: input.codexExecutable,
+      model: "gpt-5.6-terra",
+      reasoningEffort: "medium",
+      extraArgs: [],
+    },
+    entire: { executable: input.entireExecutable },
     stateDirectory: ".signal-control-tower",
     projects: {
       mfiq: {
@@ -58,11 +63,11 @@ export function createSetupConfig(input) {
         allowWrite: true,
         baseRef: "HEAD",
         isolatedWorktree: true,
+        validateCommand: ["npm", "run", "validate"],
         ...(input.enableRelease
           ? {
             release: {
               publishRemote: "origin",
-              validateCommand: ["npm", "run", "validate"],
               deployCommand: ["npm", "run", "deploy"],
             },
           }
@@ -381,7 +386,7 @@ export async function runSetup() {
         group,
         signalExecutable,
         codexExecutable,
-        activityExecutable: await findExecutable("entire") ?? "entire",
+        entireExecutable: await findExecutable("entire") ?? "entire",
         projectPath,
         enableRelease,
       });

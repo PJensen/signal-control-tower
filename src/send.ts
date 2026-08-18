@@ -1,7 +1,7 @@
 import { basename } from "node:path";
 
 import { loadConfig } from "./config.ts";
-import { queueSignalDispatch } from "./dispatch.ts";
+import { queueSignalDelivery } from "./signal-delivery.ts";
 
 interface SendOptions {
   configPath: string;
@@ -37,10 +37,10 @@ function options(args: string[]): SendOptions {
 const selected = options(process.argv.slice(2));
 const config = await loadConfig(selected.configPath);
 const body = selected.message ?? `Attached file: ${basename(selected.file ?? "file")}`;
-const queued = await queueSignalDispatch(
+const queued = await queueSignalDelivery(
   config.stateDirectory,
   body,
   selected.title,
   selected.file,
 );
-process.stdout.write(`Queued Signal dispatch ${queued.id}\n`);
+process.stdout.write(`Queued Signal delivery ${queued.id}\n`);

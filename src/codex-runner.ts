@@ -25,7 +25,7 @@ interface ActiveRun {
   cancelling: boolean;
 }
 
-function taskPrompt(item: WorkItem): string {
+function taskPrompt(item: WorkItem, project: ProjectConfig): string {
   const attachmentNote = item.attachments.length === 0
     ? "No attachments were supplied."
     : `The Signal message included ${item.attachments.length} attachment(s). Their bytes are not exposed in this first intake version; do not claim to have inspected them.`;
@@ -37,6 +37,11 @@ function taskPrompt(item: WorkItem): string {
         "This is a read-only codebase question. Do not edit files, create commits, or change repository state. Answer with concrete file references where useful.",
       ]
       : []),
+    ...(item.mode === "question" ? [] : [
+      `Before your final answer, run ${
+        project.validateCommand.join(" ")
+      } and keep working to resolve failures. Do not report the task complete while required validation fails; if an external blocker prevents a passing run, report that blocker plainly.`,
+    ]),
     "Do not wait for interactive approval; report any action that cannot be completed safely.",
     "To send a file back to Signal, put `ATTACHMENT: relative/path` on its own line in your final response. Only nominate files the user requested or that materially help answer the request.",
     attachmentNote,
@@ -174,6 +179,7 @@ export class CodexWorkQueue {
     await this.#emit(item, { kind: "started", workspace });
 
     const codex = await this.#executeCodex(item, project, workspace);
+    if (item.mode !== "question") await this.#validate(project, workspace);
     const artifacts = extractArtifactDeclarations(
       codex.summary || "Codex completed without a final answer.",
     );
@@ -229,7 +235,9 @@ export class CodexWorkQueue {
       project,
       workspace,
       extraArgs: this.#config.codex.extraArgs,
-      prompt: taskPrompt(item),
+      model: this.#config.codex.model,
+      reasoningEffort: this.#config.codex.reasoningEffort,
+      prompt: taskPrompt(item, project),
     });
     const child = spawn(this.#config.codex.executable, args, {
       cwd: workspace,
@@ -285,5 +293,28 @@ export class CodexWorkQueue {
     }
     const response = { summary: summary || output.trim(), ...(threadId ? { threadId } : {}) };
     return response;
+  }
+
+  async #validate(project: ProjectConfig, workspace: string): Promise<void> {
+    const [executable, ...args] = project.validateCommand;
+    if (!executable) throw new Error("The configured validation command is empty.");
+    try {
+      await execFileAsync(executable, args, {
+        cwd: workspace,
+        env: process.env,
+        encoding: "utf8",
+        maxBuffer: 2_000_000,
+        timeout: 30 * 60_000,
+      });
+    } catch (error) {
+      const output = error instanceof Error && "stdout" in error && "stderr" in error
+        ? `${String(error.stdout)}\n${String(error.stderr)}`
+        : error instanceof Error
+        ? error.message
+        : String(error);
+      throw new Error(
+        `Validation failed (${project.validateCommand.join(" ")}): ${truncate(output, 1500)}`,
+      );
+    }
   }
 }

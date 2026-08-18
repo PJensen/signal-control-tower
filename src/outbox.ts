@@ -22,9 +22,9 @@ interface GitPrePushEvent {
   updates: GitUpdate[];
 }
 
-interface SignalDispatchEvent {
+interface SignalDeliveryEvent {
   version: 1;
-  kind: "signal-dispatch";
+  kind: "signal-delivery";
   createdAt: string;
   title?: string;
   body: string;
@@ -83,22 +83,22 @@ function parseGitPrePushEvent(value: unknown): GitPrePushEvent {
   };
 }
 
-function parseSignalDispatchEvent(value: unknown): SignalDispatchEvent {
+function parseSignalDeliveryEvent(value: unknown): SignalDeliveryEvent {
   const event = object(value);
-  if (event?.version !== 1 || event.kind !== "signal-dispatch") {
+  if (event?.version !== 1 || event.kind !== "signal-delivery") {
     throw new Error("Unsupported outbox event");
   }
   const attachments = event.attachments === undefined ? [] : event.attachments;
   if (!Array.isArray(attachments) || attachments.length > 5) {
-    throw new Error("Invalid dispatch attachments");
+    throw new Error("Invalid delivery attachments");
   }
   return {
     version: 1,
-    kind: "signal-dispatch",
-    createdAt: text(event.createdAt, "dispatch creation time"),
-    ...(event.title === undefined ? {} : { title: text(event.title, "dispatch title") }),
-    body: text(event.body, "dispatch body", 500_000),
-    attachments: attachments.map((attachment) => text(attachment, "dispatch attachment", 4_096)),
+    kind: "signal-delivery",
+    createdAt: text(event.createdAt, "delivery creation time"),
+    ...(event.title === undefined ? {} : { title: text(event.title, "delivery title") }),
+    body: text(event.body, "delivery body", 500_000),
+    attachments: attachments.map((attachment) => text(attachment, "delivery attachment", 4_096)),
   };
 }
 
@@ -124,18 +124,18 @@ export function formatGitPrePushEvent(value: unknown): string {
 export function formatOutboxEvent(value: unknown): string {
   const event = object(value);
   if (event?.kind === "git-pre-push") return formatGitPrePushEvent(value);
-  if (event?.kind === "signal-dispatch") {
-    const dispatch = parseSignalDispatchEvent(value);
-    return dispatch.title ? `${dispatch.title}\n\n${dispatch.body}` : dispatch.body;
+  if (event?.kind === "signal-delivery") {
+    const delivery = parseSignalDeliveryEvent(value);
+    return delivery.title ? `${delivery.title}\n\n${delivery.body}` : delivery.body;
   }
   throw new Error("Unsupported outbox event");
 }
 
 export function outboxDelivery(value: unknown): OutboxDelivery {
   const event = object(value);
-  if (event?.kind === "signal-dispatch") {
-    const dispatch = parseSignalDispatchEvent(value);
-    return { message: formatOutboxEvent(value), attachments: dispatch.attachments };
+  if (event?.kind === "signal-delivery") {
+    const delivery = parseSignalDeliveryEvent(value);
+    return { message: formatOutboxEvent(value), attachments: delivery.attachments };
   }
   return { message: formatOutboxEvent(value), attachments: [] };
 }

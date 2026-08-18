@@ -37,9 +37,9 @@ function commandWords(value: string): string[] | undefined {
   return words;
 }
 
-function activityArguments(value: string): string[] | string {
+function dispatchArguments(value: string): string[] | string {
   const words = commandWords(value);
-  if (!words) return "The /activity arguments contain an unmatched quote.";
+  if (!words) return "The /dispatch arguments contain an unmatched quote.";
   const args: string[] = [];
   let local = false;
   let repos = false;
@@ -59,12 +59,12 @@ function activityArguments(value: string): string[] | string {
       if (flag === "--voice") voice = true;
       args.push(flag, argument);
       continue;
-    } else return `Unsupported /activity flag: ${flag}`;
+    } else return `Unsupported /dispatch flag: ${flag}`;
     args.push(flag);
   }
   if (repos && local) return "--repos cannot be combined with --local.";
   if (repos && (agent || allBranches)) {
-    return "--agent and --all-branches require local activity generation.";
+    return "--agent and --all-branches require local dispatch generation.";
   }
   if (!repos && !local) args.push("--local");
   if (!voice) args.push("--voice", "neutral");
@@ -96,9 +96,12 @@ function normalizeAttachments(value: unknown): WorkItemAttachment[] {
     const filename = string(attachment.filename);
     const contentType = string(attachment.contentType);
     const size = number(attachment.size);
+    const path = string(attachment.path) ?? string(attachment.localPath) ??
+      string(attachment.storedFilename);
     if (filename) normalized.filename = filename;
     if (contentType) normalized.contentType = contentType;
     if (size !== undefined) normalized.size = size;
+    if (path) normalized.path = path;
     return [normalized];
   });
 }
@@ -235,12 +238,39 @@ export function parseIntakeCommand(raw: string): IntakeCommand {
       }
       return { kind: "feature", request };
     }
-    case "/activity": {
-      if (body) return { kind: "invalid", reason: "Use /activity and its flags on one line." };
-      const parsed = activityArguments(firstLine.slice(command.length).trim());
+    case "/capture": {
+      if (body) {
+        return { kind: "invalid", reason: "Use /capture commands on one line." };
+      }
+      const action = args.shift()?.toLowerCase();
+      if (action === "start") {
+        const project = args.shift()?.toLowerCase();
+        if (project && !/^[a-z0-9][a-z0-9_-]{0,47}$/u.test(project)) {
+          return { kind: "invalid", reason: "The project key is invalid." };
+        }
+        const title = args.join(" ").trim();
+        return {
+          kind: "capture",
+          action: "start",
+          ...(project ? { project } : {}),
+          ...(title ? { title } : {}),
+        };
+      }
+      if (["status", "done", "cancel"].includes(action ?? "") && args.length === 0) {
+        return { kind: "capture", action: action as "status" | "done" | "cancel" };
+      }
+      return {
+        kind: "invalid",
+        reason:
+          "Use /capture start [project] [title], /capture status, /capture done, or /capture cancel.",
+      };
+    }
+    case "/dispatch": {
+      if (body) return { kind: "invalid", reason: "Use /dispatch and its flags on one line." };
+      const parsed = dispatchArguments(firstLine.slice(command.length).trim());
       return typeof parsed === "string"
         ? { kind: "invalid", reason: parsed }
-        : { kind: "activity", args: parsed };
+        : { kind: "dispatch", args: parsed };
     }
     case "/context":
       return args.length <= 1

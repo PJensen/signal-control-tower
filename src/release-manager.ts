@@ -44,7 +44,7 @@ export class WorkItemReleaseManager {
   async publish(record: WorkItemRecord): Promise<WorkItemPublication> {
     return this.#exclusive(async () => {
       const { workspace, project } = await this.#releaseTarget(record);
-      const [validateExecutable, ...validateArgs] = project.release.validateCommand;
+      const [validateExecutable, ...validateArgs] = project.validateCommand;
       if (!validateExecutable) throw new Error("The configured validation command is empty.");
       await execute(validateExecutable, validateArgs, workspace, process.env);
       if (await git(workspace, ["status", "--porcelain"])) {

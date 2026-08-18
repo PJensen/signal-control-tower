@@ -1,0 +1,6 @@
+{
+  "enabled": true,
+  "summary_generation": {
+    "provider": "codex"
+  }
+}

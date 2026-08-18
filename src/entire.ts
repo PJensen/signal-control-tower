@@ -3,24 +3,38 @@ import { promisify } from "node:util";
 
 const execFileAsync = promisify(execFile);
 
-export async function generateActivityDispatch(
+export interface EntireDispatchResult {
+  output: string;
+  stdout: string;
+  stderr: string;
+  durationMs: number;
+}
+
+export async function generateEntireDispatch(
   executable: string,
   projectPath: string,
   args: string[],
-): Promise<string> {
+): Promise<EntireDispatchResult> {
+  const startedAt = Date.now();
   const result = await execFileAsync(executable, ["dispatch", ...args], {
     cwd: projectPath,
     encoding: "utf8",
     maxBuffer: 4_000_000,
     timeout: 10 * 60_000,
   });
-  return result.stdout.trim() || result.stderr.trim() ||
-    "Entire completed without dispatch output.";
+  const stdout = result.stdout.trim();
+  const stderr = result.stderr.trim();
+  return {
+    output: stdout || stderr || "Entire completed without dispatch output.",
+    stdout,
+    stderr,
+    durationMs: Date.now() - startedAt,
+  };
 }
 
-export function activityMessageBlocks(dispatch: string, limit = 1700): string[] {
+export function signalMessageBlocks(message: string, limit = 1700): string[] {
   const remainingBlocks: string[] = [];
-  let remaining = dispatch.trim();
+  let remaining = message.trim();
   while (remaining.length > limit) {
     let cut = remaining.lastIndexOf("\n\n", limit);
     if (cut < Math.floor(limit / 2)) cut = remaining.lastIndexOf("\n", limit);
@@ -29,7 +43,5 @@ export function activityMessageBlocks(dispatch: string, limit = 1700): string[] 
     remaining = remaining.slice(cut).trim();
   }
   if (remaining) remainingBlocks.push(remaining);
-  return remainingBlocks.length > 0
-    ? remainingBlocks
-    : ["Entire completed without dispatch output."];
+  return remainingBlocks.length > 0 ? remainingBlocks : ["No message output was produced."];
 }

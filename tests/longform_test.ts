@@ -1,4 +1,4 @@
-import { activityMessageBlocks } from "../src/activity.ts";
+import { signalMessageBlocks } from "../src/entire.ts";
 import { finalSummary } from "../src/codex-runner.ts";
 
 function assert(condition: boolean): void {
@@ -24,7 +24,7 @@ Deno.test("longform responses split into ordered Signal-safe messages without lo
     (_, index) => `Paragraph ${index + 1}: ${"detail ".repeat(12).trim()}`,
   );
   const response = paragraphs.join("\n\n");
-  const blocks = activityMessageBlocks(response, 500);
+  const blocks = signalMessageBlocks(response, 500);
 
   assert(blocks.length > 1);
   assert(blocks.every((block) => block.length <= 500));

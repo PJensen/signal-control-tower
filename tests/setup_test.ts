@@ -36,14 +36,22 @@ Deno.test("setup emits least-privilege MFIQ configuration", () => {
     group: { id: "mfiq-id", name: "MFIQ.ai" },
     signalExecutable: "/usr/local/bin/signal-cli",
     codexExecutable: "/home/pete/.local/bin/codex",
-    activityExecutable: "entire",
+    entireExecutable: "entire",
     projectPath: "/src/mfiq.ai",
     enableRelease: false,
   });
+  assertEquals(config.codex, {
+    executable: "/home/pete/.local/bin/codex",
+    model: "gpt-5.6-terra",
+    reasoningEffort: "medium",
+    extraArgs: [],
+  });
+  assertEquals(config.entire, { executable: "entire" });
   assertEquals(config.projects.mfiq, {
     path: "/src/mfiq.ai",
     allowWrite: true,
     baseRef: "HEAD",
     isolatedWorktree: true,
+    validateCommand: ["npm", "run", "validate"],
   });
 });

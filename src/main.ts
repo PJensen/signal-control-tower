@@ -5,16 +5,25 @@ import { execFile } from "node:child_process";
 import { join } from "node:path";
 import { promisify } from "node:util";
 
-import { activityMessageBlocks, generateActivityDispatch } from "./activity.ts";
+import { generateEntireDispatch, signalMessageBlocks } from "./entire.ts";
 import { validateArtifactPaths } from "./artifacts.ts";
 import { CodexWorkQueue } from "./codex-runner.ts";
 import { loadConfig } from "./config.ts";
+import { ContextCaptureStore } from "./context-capture.ts";
 import { recordFeatureRequest } from "./feature-request.ts";
+import { EventLog } from "./event-log.ts";
 import { SignalOutbox } from "./outbox.ts";
 import { parseIntakeCommand, signalNotificationToMessage } from "./protocol.ts";
 import { WorkItemReleaseManager } from "./release-manager.ts";
 import { SignalJsonRpc } from "./signal-json-rpc.ts";
 import { WorkItemStore } from "./store.ts";
+import {
+  commandEnabled,
+  helpMessage,
+  parseStartupOptions,
+  shutdownAnnouncement,
+  startupAnnouncement,
+} from "./startup.ts";
 import type {
   IncomingSignalMessage,
   IntakeConfig,
@@ -23,43 +32,7 @@ import type {
   WorkItemResult,
 } from "./types.ts";
 
-const HELP = [
-  "🗼 Signal Control Tower",
-  "",
-  "🤖 /codex <task> — build or fix",
-  "🔎 /ask <question> — inspect code",
-  "💡 /feature <idea> — save a request",
-  "📡 /activity [flags] — recent agent work",
-  "📍 /status [id] — check progress",
-  "🛑 /cancel [id] — stop work",
-  "🚀 /publish <id> — test · commit · push",
-  "🌎 /deploy <id> — ship production",
-  "🧭 /context [project] — show setup",
-  "✨ /help — show this card",
-].join("\n");
-
 const execFileAsync = promisify(execFile);
-
-function cliOptions(args: string[]): { configPath: string; doctor: boolean } {
-  let configPath = "signal-control-tower.json";
-  let doctor = false;
-  for (let index = 0; index < args.length; index += 1) {
-    const arg = args[index];
-    if (arg === "--doctor") doctor = true;
-    else if (arg === "--config") {
-      const value = args[index + 1];
-      if (!value) throw new Error("--config requires a path");
-      configPath = value;
-      index += 1;
-    } else if (arg === "--help" || arg === "-h") {
-      process.stdout.write("Usage: deno task start -- [--config PATH] [--doctor]\n");
-      process.exit(0);
-    } else {
-      throw new Error(`Unknown argument: ${String(arg)}`);
-    }
-  }
-  return { configPath, doctor };
-}
 
 function group(value: unknown, groupId: string): Record<string, unknown> | undefined {
   return Array.isArray(value)
@@ -146,7 +119,7 @@ async function verifyLocalExecution(config: IntakeConfig): Promise<void> {
     encoding: "utf8",
     timeout: 10_000,
   });
-  await execFileAsync(config.activity.executable, ["--version"], {
+  await execFileAsync(config.entire.executable, ["--version"], {
     encoding: "utf8",
     timeout: 10_000,
   });
@@ -165,10 +138,22 @@ async function verifyLocalExecution(config: IntakeConfig): Promise<void> {
 }
 
 async function run(): Promise<void> {
-  const options = cliOptions(process.argv.slice(2));
+  let options;
+  try {
+    options = parseStartupOptions(process.argv.slice(2));
+  } catch (error) {
+    if ((error as Error).message !== "help") throw error;
+    process.stdout.write(
+      "Usage: deno task start -- [--config PATH] [--doctor] [--mode ask,feature,dispatch]\n",
+    );
+    return;
+  }
   const config = await loadConfig(options.configPath);
   const store = new WorkItemStore(config.stateDirectory);
+  const eventLog = new EventLog(config.stateDirectory);
+  const captures = new ContextCaptureStore(config.stateDirectory);
   await store.load();
+  await captures.load();
   await verifyLocalExecution(config);
   const releases = new WorkItemReleaseManager(config);
 
@@ -177,18 +162,142 @@ async function run(): Promise<void> {
     const message = signalNotificationToMessage(notification);
     if (!message || message.groupId !== config.signal.groupId) return;
     if (!config.signal.allowedSenders.includes(message.sender)) {
+      await eventLog.record("signal.inbound.rejected", {
+        sender: message.sender,
+        groupId: message.groupId,
+        timestamp: message.timestamp,
+      });
       process.stderr.write(`[signal-control-tower] rejected sender ${message.sender}\n`);
       return;
     }
 
+    await eventLog.record(
+      "signal.inbound.accepted",
+      { message, notification },
+      message.attachments.flatMap((attachment) => attachment.path ? [attachment.path] : []),
+    );
+
     const command = parseIntakeCommand(message.message);
-    if (command.kind === "ignore") return;
+    await eventLog.record("intake.parsed", {
+      messageId: `${message.groupId}:${message.sender}:${message.timestamp}`,
+      command,
+    });
+    if (command.kind === "ignore") {
+      const capture = await captures.append(message);
+      if (capture) {
+        await eventLog.record("context.capture.message", {
+          captureId: capture.id,
+          messageId: `${message.groupId}:${message.sender}:${message.timestamp}`,
+          messageCount: capture.messages.length,
+        });
+      }
+      return;
+    }
     if (command.kind === "invalid") {
       await signal.sendGroupMessage(`✗ ${command.reason}`);
       return;
     }
+    if (!commandEnabled(command, options)) {
+      await signal.sendGroupMessage(
+        `✗ /${command.kind} is disabled in this startup mode. Enabled: ${
+          options.modes.join(", ")
+        }.`,
+      );
+      return;
+    }
     if (command.kind === "help") {
-      await signal.sendGroupMessage(HELP);
+      await signal.sendGroupMessage(helpMessage(options));
+      return;
+    }
+    if (command.kind === "capture") {
+      const active = captures.activeFor(message.sender, message.groupId);
+      if (command.action === "status") {
+        await signal.sendGroupMessage(
+          active
+            ? [
+              `🎙️ capture active`,
+              `session: ${active.id}`,
+              `project: ${active.project}`,
+              `messages: ${active.messages.length}`,
+              `started: ${active.startedAt}`,
+            ].join("\n")
+            : "No active context capture.",
+        );
+        return;
+      }
+      if (command.action === "cancel") {
+        const cancelled = await captures.cancel(message.sender, message.groupId);
+        await signal.sendGroupMessage(
+          cancelled
+            ? `Context capture cancelled: ${cancelled.id} (${cancelled.messages.length} messages retained in the audit log)`
+            : "No active context capture.",
+        );
+        return;
+      }
+      if (command.action === "done") {
+        if (!active) {
+          await signal.sendGroupMessage("No active context capture.");
+          return;
+        }
+        const project = config.projects[active.project];
+        if (!project) {
+          await signal.sendGroupMessage(
+            `✗ capture project is no longer configured: ${active.project}`,
+          );
+          return;
+        }
+        try {
+          const completed = await captures.complete(message.sender, message.groupId, project.path);
+          if (!completed) throw new Error("The capture is no longer active.");
+          await eventLog.record("context.capture.completed", { ...completed });
+          await signal.sendGroupMessage([
+            "✓ context captured",
+            `session: ${completed.id}`,
+            `messages: ${completed.messageCount}`,
+            `attachments: ${completed.attachmentCount}`,
+            `path: ${completed.relativePath}`,
+          ].join("\n"));
+        } catch (error) {
+          await signal.sendGroupMessage(`✗ context capture failed\n${(error as Error).message}`);
+        }
+        return;
+      }
+
+      const configuredProjects = Object.keys(config.projects);
+      const projectKey = command.project ??
+        (configuredProjects.length === 1 ? configuredProjects[0] : undefined);
+      if (!projectKey) {
+        await signal.sendGroupMessage(
+          "✗ specify a project when more than one project is configured.",
+        );
+        return;
+      }
+      if (!config.projects[projectKey]) {
+        await signal.sendGroupMessage(`✗ unknown project: ${projectKey}`);
+        return;
+      }
+      try {
+        const started = await captures.start(
+          message.sender,
+          message.groupId,
+          projectKey,
+          command.title,
+        );
+        await eventLog.record("context.capture.started", {
+          captureId: started.id,
+          project: started.project,
+          sender: started.sender,
+          conversation: started.conversation,
+        });
+        await signal.sendGroupMessage([
+          `🎙️ Capturing context for ${projectKey}`,
+          `session: ${started.id}`,
+          "Send messages and attachments normally.",
+          "Use /capture done when finished.",
+        ].join("\n"));
+      } catch (error) {
+        await signal.sendGroupMessage(`✗ ${(error as Error).message}`);
+      }
       return;
     }
     if (command.kind === "context") {
@@ -305,31 +414,48 @@ async function run(): Promise<void> {
       }
       return;
     }
-    if (command.kind === "activity") {
+    if (command.kind === "dispatch") {
       const configuredProjects = Object.keys(config.projects);
       const projectKey = configuredProjects.length === 1 ? configuredProjects[0] : undefined;
       const project = projectKey ? config.projects[projectKey] : undefined;
       if (!project) {
-        await signal.sendGroupMessage("✗ /activity requires exactly one configured project.");
+        await signal.sendGroupMessage("✗ /dispatch requires exactly one configured project.");
         return;
       }
       try {
-        await signal.sendGroupMessage("Generating activity dispatch…");
-        const dispatch = await generateActivityDispatch(
-          config.activity.executable,
+        await signal.sendGroupMessage("Generating Entire dispatch…");
+        const result = await generateEntireDispatch(
+          config.entire.executable,
           project.path,
           command.args,
         );
-        const blocks = activityMessageBlocks(dispatch);
+        await eventLog.record("entire.dispatch.completed", {
+          executable: config.entire.executable,
+          cwd: project.path,
+          args: ["dispatch", ...command.args],
+          stdout: result.stdout,
+          stderr: result.stderr,
+          durationMs: result.durationMs,
+        });
+        const blocks = signalMessageBlocks(result.output);
         for (const [index, block] of blocks.entries()) {
           const heading = blocks.length === 1
-            ? "Activity dispatch"
-            : `Activity dispatch ${index + 1}/${blocks.length}`;
+            ? "Entire dispatch"
+            : `Entire dispatch ${index + 1}/${blocks.length}`;
           await signal.sendGroupMessage(`${heading}\n\n${block}`);
         }
       } catch (error) {
+        const failure = error as Error & { stdout?: string; stderr?: string };
+        await eventLog.record("entire.dispatch.failed", {
+          executable: config.entire.executable,
+          cwd: project.path,
+          args: ["dispatch", ...command.args],
+          error: failure.message,
+          stdout: failure.stdout ?? "",
+          stderr: failure.stderr ?? "",
+        });
         await signal.sendGroupMessage(
-          `✗ activity dispatch failed\n${(error as Error).message.slice(0, 1500)}`,
+          `✗ Entire dispatch failed\n${(error as Error).message.slice(0, 1500)}`,
         );
       }
       return;
@@ -367,9 +493,10 @@ async function run(): Promise<void> {
       `attachments: ${item.attachments.length} metadata-only`,
     ].join("\n"));
     queue.enqueue(item);
-  });
+  }, (kind, data, attachments) => eventLog.record(kind, data, attachments));
 
   queue = new CodexWorkQueue(config, store, async (item, event) => {
+    await eventLog.record(`work.${event.kind}`, { item, event });
     if (event.kind === "started") {
       await signal.sendGroupMessage(
         `${
@@ -377,7 +504,7 @@ async function run(): Promise<void> {
         }…\nid: ${item.id}`,
       );
     } else if (event.kind === "completed") {
-      for (const block of activityMessageBlocks(completion(item, event.result))) {
+      for (const block of signalMessageBlocks(completion(item, event.result))) {
         await signal.sendGroupMessage(block);
       }
       if (event.result.artifactPaths?.length) {
@@ -462,37 +589,54 @@ async function run(): Promise<void> {
     return;
   }
 
+  await store.interruptActiveQueue();
+  await signal.sendGroupMessage(startupAnnouncement(options));
+
   const outbox = new SignalOutbox(join(config.stateDirectory, "outbox"), async (delivery) => {
     if (delivery.attachments.length) {
       await signal.sendGroupAttachments(delivery.message, delivery.attachments);
       return;
     }
-    for (const block of activityMessageBlocks(delivery.message)) {
+    for (const block of signalMessageBlocks(delivery.message)) {
       await signal.sendGroupMessage(block);
     }
   });
   await outbox.start();
 
-  for (const record of store.all().reverse()) {
-    if (record.status === "running") {
-      await store.update(record.item.id, {
-        status: "interrupted",
-        error:
-          "The intake daemon stopped while this item was running; it was not resumed automatically.",
-      });
-    } else if (record.status === "queued") {
-      queue.enqueue(record.item);
-    }
-  }
-
   process.stdout.write(`Listening to Signal group ${config.signal.groupName}\n`);
-  const stop = (): void => {
-    outbox.stop();
-    signal.stop();
-    process.exitCode = 0;
+  let stopping = false;
+  const stop = async (shutdownSignal: "SIGINT" | "SIGTERM"): Promise<void> => {
+    if (stopping) return;
+    stopping = true;
+    process.stdout.write(`Shutting down after ${shutdownSignal}\n`);
+    try {
+      await eventLog.record("shutdown.requested", { signal: shutdownSignal });
+      try {
+        await signal.sendGroupMessage(shutdownAnnouncement(shutdownSignal));
+        await eventLog.record("shutdown.broadcast", { signal: shutdownSignal, delivered: true });
+      } catch (error) {
+        await eventLog.record("shutdown.broadcast", {
+          signal: shutdownSignal,
+          delivered: false,
+          error: (error as Error).message,
+        });
+        process.stderr.write(
+          `[signal-control-tower] shutdown broadcast failed: ${(error as Error).message}\n`,
+        );
+      }
+      await eventLog.record("shutdown.completed", { signal: shutdownSignal });
+    } catch (error) {
+      process.stderr.write(
+        `[signal-control-tower] shutdown logging failed: ${(error as Error).message}\n`,
+      );
+    } finally {
+      outbox.stop();
+      signal.stop();
+      process.exitCode = 0;
+    }
   };
-  process.once("SIGINT", stop);
-  process.once("SIGTERM", stop);
+  process.on("SIGINT", () => void stop("SIGINT"));
+  process.on("SIGTERM", () => void stop("SIGTERM"));
 }
 
 run().catch((error: unknown) => {

@@ -1,4 +1,4 @@
-import { queueSignalDispatch } from "../src/dispatch.ts";
+import { queueSignalDelivery } from "../src/signal-delivery.ts";
 import { formatOutboxEvent, outboxDelivery } from "../src/outbox.ts";
 
 function assertEquals(actual: unknown, expected: unknown): void {
@@ -7,12 +7,12 @@ function assertEquals(actual: unknown, expected: unknown): void {
   }
 }
 
-Deno.test("signal dispatches are durably queued and formatted", async () => {
-  const stateDirectory = await Deno.makeTempDir({ prefix: "signal-dispatch-" });
+Deno.test("signal deliveries are durably queued and formatted", async () => {
+  const stateDirectory = await Deno.makeTempDir({ prefix: "signal-delivery-" });
   try {
-    const queued = await queueSignalDispatch(stateDirectory, "  Architecture body\n", "MFIQ");
+    const queued = await queueSignalDelivery(stateDirectory, "  Architecture body\n", "MFIQ");
     const event = JSON.parse(await Deno.readTextFile(queued.path));
-    assertEquals(event.kind, "signal-dispatch");
+    assertEquals(event.kind, "signal-delivery");
     assertEquals(event.body, "Architecture body");
     assertEquals(formatOutboxEvent(event), "MFIQ\n\nArchitecture body");
   } finally {
@@ -20,12 +20,12 @@ Deno.test("signal dispatches are durably queued and formatted", async () => {
   }
 });
 
-Deno.test("file dispatches spool a real Signal attachment", async () => {
-  const stateDirectory = await Deno.makeTempDir({ prefix: "signal-file-dispatch-" });
+Deno.test("file deliveries spool a real Signal attachment", async () => {
+  const stateDirectory = await Deno.makeTempDir({ prefix: "signal-file-delivery-" });
   try {
     const source = `${stateDirectory}/architecture.md`;
     await Deno.writeTextFile(source, "Architecture\n");
-    const queued = await queueSignalDispatch(
+    const queued = await queueSignalDelivery(
       stateDirectory,
       "Attached file: architecture.md",
       "MFIQ",

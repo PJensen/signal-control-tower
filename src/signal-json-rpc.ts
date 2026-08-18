@@ -10,10 +10,16 @@ interface JsonRpcResponse {
 }
 
 type NotificationHandler = (value: unknown) => void | Promise<void>;
+type EventRecorder = (
+  kind: string,
+  data: Record<string, unknown>,
+  attachmentPaths?: string[],
+) => void | Promise<void>;
 
 export class SignalJsonRpc {
   readonly #config: IntakeConfig["signal"];
   readonly #onNotification: NotificationHandler;
+  readonly #record?: EventRecorder;
   #child: ChildProcessWithoutNullStreams | undefined;
   #sequence = 0;
   #pending = new Map<
@@ -21,9 +27,14 @@ export class SignalJsonRpc {
     { resolve: (value: unknown) => void; reject: (error: Error) => void }
   >();
 
-  constructor(config: IntakeConfig["signal"], onNotification: NotificationHandler) {
+  constructor(
+    config: IntakeConfig["signal"],
+    onNotification: NotificationHandler,
+    record?: EventRecorder,
+  ) {
     this.#config = config;
     this.#onNotification = onNotification;
+    this.#record = record;
   }
 
   async start(): Promise<void> {
@@ -36,11 +47,16 @@ export class SignalJsonRpc {
       "--ignore-avatars",
       "--ignore-stickers",
     ];
-    const child = spawn(this.#config.executable, args, { stdio: ["pipe", "pipe", "pipe"] });
+    const child = spawn(this.#config.executable, args, {
+      stdio: ["pipe", "pipe", "pipe"],
+      // Keep terminal Ctrl+C on the tower so it can announce shutdown before stopping signal-cli.
+      detached: true,
+    });
     this.#child = child;
 
     child.stderr.setEncoding("utf8");
     child.stderr.on("data", (chunk: string) => process.stderr.write(`[signal-cli] ${chunk}`));
+    child.stdin.on("error", (error) => this.#rejectAll(error));
     child.once("error", (error) => this.#rejectAll(error));
     child.once("exit", (code, signal) => {
       this.#child = undefined;
@@ -76,10 +92,16 @@ export class SignalJsonRpc {
 
   async sendGroupMessage(message: string): Promise<void> {
     await this.request("send", { groupId: this.#config.groupId, message });
+    await this.#record?.("signal.outbound", { groupId: this.#config.groupId, message });
   }
 
   async sendGroupAttachments(message: string, attachments: string[]): Promise<void> {
     await this.request("send", { groupId: this.#config.groupId, message, attachments });
+    await this.#record?.(
+      "signal.outbound",
+      { groupId: this.#config.groupId, message, attachmentPaths: attachments },
+      attachments,
+    );
   }
 
   stop(): void {

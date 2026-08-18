@@ -23,6 +23,30 @@ Deno.test("parseIntakeCommand keeps questions read-only", () => {
   });
 });
 
+Deno.test("parseIntakeCommand maps dispatch directly to Entire arguments", () => {
+  assertEquals(parseIntakeCommand("/dispatch --since 7d --voice neutral"), {
+    kind: "dispatch",
+    args: ["--since", "7d", "--voice", "neutral", "--local"],
+  });
+});
+
+Deno.test("parseIntakeCommand parses context capture lifecycle commands", () => {
+  assertEquals(parseIntakeCommand("/capture start mfiq Rent roll workflow"), {
+    kind: "capture",
+    action: "start",
+    project: "mfiq",
+    title: "Rent roll workflow",
+  });
+  assertEquals(parseIntakeCommand("/capture status"), {
+    kind: "capture",
+    action: "status",
+  });
+  assertEquals(parseIntakeCommand("/capture done"), {
+    kind: "capture",
+    action: "done",
+  });
+});
+
 Deno.test("signalNotificationToMessage normalizes receive notifications", () => {
   assertEquals(
     signalNotificationToMessage({
