@@ -35,7 +35,7 @@ Deno.test("outbound artifacts are extracted and constrained to the workspace", a
     await Deno.symlink(`${root}/outside.txt`, `${workspace}/outside.txt`);
     await assertRejects(
       () => validateArtifactPaths(workspace, ["outside.txt"]),
-      "escapes the project",
+      "escapes the workspace",
     );
   } finally {
     await Deno.remove(root, { recursive: true });

@@ -53,7 +53,13 @@ if (command === "setup") {
     process.stderr.write("Deno is missing. Run: signal-control-tower setup\n");
     process.exit(1);
   }
-  const permissions = ["--allow-read", "--allow-write", "--allow-run", "--allow-env"];
+  const permissions = [
+    "--allow-read",
+    "--allow-write",
+    "--allow-run",
+    "--allow-env",
+    "--allow-net=127.0.0.1:8765",
+  ];
   const entrypoint = command === "send" ? "src/send.ts" : "src/main.ts";
   const modeArgs = command === "doctor" ? ["--doctor", ...args] : args;
   child = spawnSync(

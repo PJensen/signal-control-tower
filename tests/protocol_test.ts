@@ -8,12 +8,15 @@ function assertEquals(actual: unknown, expected: unknown): void {
   }
 }
 
-Deno.test("parseIntakeCommand parses multiline project tasks", () => {
-  assertEquals(parseIntakeCommand("/codex app\nFix the release workflow"), {
+Deno.test("parseIntakeCommand parses multiline workspace tasks", () => {
+  assertEquals(parseIntakeCommand("/codex\nFix the release workflow"), {
     kind: "codex",
-    project: "app",
     instruction: "Fix the release workflow",
   });
+});
+
+Deno.test("parseIntakeCommand parses ship", () => {
+  assertEquals(parseIntakeCommand("/ship"), { kind: "ship" });
 });
 
 Deno.test("parseIntakeCommand keeps questions read-only", () => {
@@ -31,10 +34,9 @@ Deno.test("parseIntakeCommand maps dispatch directly to Entire arguments", () =>
 });
 
 Deno.test("parseIntakeCommand parses context capture lifecycle commands", () => {
-  assertEquals(parseIntakeCommand("/capture start mfiq Rent roll workflow"), {
+  assertEquals(parseIntakeCommand("/capture start Rent roll workflow"), {
     kind: "capture",
     action: "start",
-    project: "mfiq",
     title: "Rent roll workflow",
   });
   assertEquals(parseIntakeCommand("/capture status"), {

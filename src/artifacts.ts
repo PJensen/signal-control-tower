@@ -24,12 +24,12 @@ export async function validateArtifactPaths(workspace: string, paths: string[]):
   const validated: string[] = [];
   for (const declared of paths.slice(0, MAX_ARTIFACTS)) {
     if (isAbsolute(declared) || declared.includes("\0")) {
-      throw new Error(`Attachment path must be relative to the project: ${declared}`);
+      throw new Error(`Attachment path must be relative to the workspace: ${declared}`);
     }
     const path = await realpath(resolve(root, declared));
     const inside = relative(root, path);
     if (!inside || inside.startsWith("..") || isAbsolute(inside)) {
-      throw new Error(`Attachment path escapes the project: ${declared}`);
+      throw new Error(`Attachment path escapes the workspace: ${declared}`);
     }
     const stats = await lstat(path);
     if (!stats.isFile()) throw new Error(`Attachment is not a regular file: ${declared}`);

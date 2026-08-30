@@ -8,7 +8,6 @@ Deno.test("Codex tasks select Terra at medium reasoning effort", () => {
   const args = buildCodexArguments({
     item: {
       id: "work-1",
-      project: "app",
       instruction: "Fix the test",
       attachments: [],
       source: {
@@ -20,12 +19,11 @@ Deno.test("Codex tasks select Terra at medium reasoning effort", () => {
       },
       createdAt: "2026-08-17T00:00:00.000Z",
     },
-    project: {
+    workspaceConfig: {
       path: "/repo",
       allowWrite: true,
-      baseRef: "main",
-      isolatedWorktree: true,
       validateCommand: ["npm", "run", "validate"],
+      shipCommands: [["npm", "run", "deploy"]],
     },
     workspace: "/repo/worktree",
     extraArgs: [],

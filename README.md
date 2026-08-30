@@ -1,8 +1,8 @@
 # Signal Control Tower
 
 Signal Control Tower is a small daemon that turns commands from an allow-listed Signal group into
-isolated Codex work items. It tracks work locally and supports status, cancellation, publication,
-deployment, feature capture, durable SME context capture, and Entire dispatch summaries.
+Codex work items in one mounted workspace. It tracks work locally and supports status, cancellation,
+shipping, feature capture, durable SME context capture, and Entire dispatch summaries.
 
 ## One-command laptop setup
 
@@ -21,10 +21,10 @@ The setup checks or installs Deno, `signal-cli`, `qrencode`, and Codex; links Si
 QR plus an ignored `.signal-control-tower/signal-link.png`; discovers the Signal account and
 defaults to the `MFIQ.ai` group; verifies the MFIQ checkout; authenticates Codex; creates an
 owner-only `signal-control-tower.json`; and runs the end-to-end doctor. It prompts before `sudo`,
-login, config replacement, Git-hook changes, or enabling `/publish` and `/deploy`.
+login, config replacement, or Git-hook changes.
 
 Nothing is deployed. The long-lived runner executes on this laptop using its local Signal, Codex,
-Git, and project credentials.
+Git, and workspace credentials.
 
 After setup:
 
@@ -32,6 +32,10 @@ After setup:
 npx --yes github:PJensen/signal-control-tower doctor
 npx --yes github:PJensen/signal-control-tower run
 ```
+
+The running tower also exposes a loopback MCP endpoint at `http://127.0.0.1:8765/mcp`. Configure
+Codex sessions to use that shared endpoint for `signal_send_message`, `signal_send_file`, and
+`signal_outbox_status`; messages are queued through the same durable outbox as the CLI.
 
 Local tools can queue a message or Markdown document for the configured Signal group through the
 runner's durable outbox:
@@ -47,7 +51,7 @@ retry if sending fails and splits long text-only deliveries into ordered, Signal
 ## Manual setup
 
 1. Copy `signal-control-tower.example.json` to `signal-control-tower.json`.
-2. Replace the Signal account, group, sender, and project values.
+2. Replace the Signal account, group, sender, and workspace values.
 3. Validate the repository with `deno task validate`.
 4. Check external tools and configuration with
    `deno task doctor -- --config signal-control-tower.json`.
@@ -73,29 +77,27 @@ Git checkout, and optionally Entire for `/dispatch`.
 
 ## Signal commands
 
-| Command                            | Purpose                                                                     |
-| ---------------------------------- | --------------------------------------------------------------------------- |
-| `/codex [project]`                 | Run a build or fix task. A multiline message may contain the instruction.   |
-| `/ask [project]`                   | Ask a read-only code question.                                              |
-| `/status [id]`                     | Show the latest or selected work item.                                      |
-| `/cancel [id]`                     | Cancel queued or running work.                                              |
-| `/publish <id>`                    | Revalidate, commit, and push completed work.                                |
-| `/deploy <id>`                     | Run the configured production deployment.                                   |
-| `/feature <idea>`                  | Record a feature request.                                                   |
-| `/capture start [project] [title]` | Start recording the sender's ordinary messages as project context.          |
-| `/capture status`                  | Show the sender's active capture and message count.                         |
-| `/capture done`                    | Finish the capture and write a verbatim Markdown transcript to the project. |
-| `/capture cancel`                  | Stop capturing; the ordinary audit trail remains intact.                    |
-| `/dispatch [flags]`                | Generate a recent agent-work summary through `entire dispatch`.             |
-| `/context [project]`               | Show available project configuration.                                       |
-| `/help`                            | Show the command card.                                                      |
+| Command                  | Purpose                                                                       |
+| ------------------------ | ----------------------------------------------------------------------------- |
+| `/codex`                 | Run a build or fix task. A multiline message may contain the instruction.     |
+| `/ask`                   | Ask a read-only code question.                                                |
+| `/status [id]`           | Show the latest or selected work item.                                        |
+| `/cancel [id]`           | Cancel queued or running work.                                                |
+| `/ship`                  | Refresh main, test, migrate, and deploy the workspace.                        |
+| `/feature <idea>`        | Record a feature request.                                                     |
+| `/capture start [title]` | Start recording the sender's ordinary messages as workspace context.          |
+| `/capture status`        | Show the sender's active capture and message count.                           |
+| `/capture done`          | Finish the capture and write a verbatim Markdown transcript to the workspace. |
+| `/capture cancel`        | Stop capturing; the ordinary audit trail remains intact.                      |
+| `/dispatch [flags]`      | Generate a recent agent-work summary through `entire dispatch`.               |
+| `/context`               | Show the mounted workspace configuration.                                     |
+| `/help`                  | Show the command card.                                                        |
 
-Only configured senders in the configured group are accepted. Write tasks use isolated Git worktrees
-by default; questions are always executed in a read-only sandbox. Every write task must pass its
-project's `validateCommand` before it is marked complete; a release `validateCommand` remains
-accepted as a backward-compatible source for that command. A successful write task automatically
-commits, pushes, and deploys when its project has release configuration; manual `/publish` and
-`/deploy` commands remain available for retries.
+Only configured senders in the configured group are accepted. Write tasks use the mounted workspace
+and commit/push successful changes; questions are always executed in a read-only sandbox. Every
+write task must pass the workspace's `validateCommand` before it is marked complete. `/ship` runs
+the configured workspace `shipCommands` in order and deploys the refreshed remote `main` after
+retaining any local stash.
 
 Codex can return requested workspace files to Signal by putting `ATTACHMENT: relative/path` on its
 own line in the final response. This also works for `/ask`, but `/ask` may only return an existing
@@ -106,11 +108,12 @@ Long Codex answers and Entire dispatches are retained in full and delivered as o
 message blocks rather than truncated.
 
 Context capture is scoped to one sender in the configured group. While a session is active, that
-sender's ordinary messages and available attachments are retained in restart-safe owner-only state.
-`/capture done` writes the source transcript and copied attachments under `docs/context/inbox/` in
-the selected project. Commands are not included in the transcript. The transcript is evidence, not
-an AI-authored decision record; teams can curate its facts into their durable product documentation
-without losing the original wording and provenance.
+sender's ordinary messages and available attachments are retained in restart-safe owner-only state;
+all other commands are rejected until the capture is completed or cancelled. `/capture done` writes
+the source transcript and copied attachments under `docs/context/inbox/` in the workspace. Commands
+are not included in the transcript. The transcript is evidence, not an AI-authored decision record;
+teams can curate its facts into their durable product documentation without losing the original
+wording and provenance.
 
 ## Development and release
 

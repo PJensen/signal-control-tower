@@ -25,9 +25,7 @@ export interface WorkItemSource {
 export interface WorkItem {
   id: string;
   mode?: "task" | "question";
-  project: string;
   instruction: string;
-  branch?: string;
   attachments: WorkItemAttachment[];
   source: WorkItemSource;
   createdAt: string;
@@ -41,38 +39,19 @@ export interface WorkItemResult {
   threadId?: string;
 }
 
-export interface WorkItemPublication {
-  remote: string;
-  branch: string;
-  commit: string;
-  publishedAt: string;
-}
-
-export interface WorkItemDeployment {
-  commit: string;
-  deployedAt: string;
-}
-
 export interface WorkItemRecord {
   item: WorkItem;
   status: WorkItemStatus;
   updatedAt: string;
   error?: string;
   result?: WorkItemResult;
-  publication?: WorkItemPublication;
-  deployment?: WorkItemDeployment;
 }
 
-export interface ProjectConfig {
+export interface WorkspaceConfig {
   path: string;
   allowWrite: boolean;
-  baseRef: string;
-  isolatedWorktree: boolean;
   validateCommand: string[];
-  release?: {
-    publishRemote: string;
-    deployCommand?: string[];
-  };
+  shipCommands: string[][];
 }
 
 export interface IntakeConfig {
@@ -94,7 +73,8 @@ export interface IntakeConfig {
     executable: string;
   };
   stateDirectory: string;
-  projects: Record<string, ProjectConfig>;
+  workspace: WorkspaceConfig;
+  mcp: { host: string; port: number };
 }
 
 export interface IncomingSignalMessage {
@@ -106,21 +86,19 @@ export interface IncomingSignalMessage {
 }
 
 export type IntakeCommand =
-  | { kind: "codex"; project?: string; instruction: string }
-  | { kind: "ask"; project?: string; question: string }
+  | { kind: "codex"; instruction: string }
+  | { kind: "ask"; question: string }
   | { kind: "status"; id?: string }
   | { kind: "cancel"; id?: string }
-  | { kind: "publish"; id: string }
-  | { kind: "deploy"; id: string }
+  | { kind: "ship" }
   | { kind: "feature"; request: string }
   | {
     kind: "capture";
     action: "start" | "status" | "done" | "cancel";
-    project?: string;
     title?: string;
   }
   | { kind: "dispatch"; args: string[] }
-  | { kind: "context"; project?: string }
+  | { kind: "context" }
   | { kind: "help" }
   | { kind: "ignore" }
   | { kind: "invalid"; reason: string };

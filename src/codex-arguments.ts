@@ -1,8 +1,8 @@
-import type { ProjectConfig, WorkItem } from "./types.ts";
+import type { WorkItem, WorkspaceConfig } from "./types.ts";
 
 interface CodexArgumentInput {
   item: WorkItem;
-  project: ProjectConfig;
+  workspaceConfig: WorkspaceConfig;
   workspace: string;
   extraArgs: string[];
   model: string;
@@ -11,7 +11,7 @@ interface CodexArgumentInput {
 }
 
 export function buildCodexArguments(input: CodexArgumentInput): string[] {
-  const allowWrite = input.item.mode !== "question" && input.project.allowWrite;
+  const allowWrite = input.item.mode !== "question" && input.workspaceConfig.allowWrite;
   return [
     "--ask-for-approval",
     "never",

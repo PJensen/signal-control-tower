@@ -172,15 +172,11 @@ export function parseIntakeCommand(raw: string): IntakeCommand {
         }
         return { kind: "codex", instruction };
       }
-      const project = args[0]?.toLowerCase();
-      if (args.length > 1) {
+      if (args.length > 0) {
         return {
           kind: "invalid",
-          reason: "Use /codex [project] followed by the instruction on a new line.",
+          reason: "Use /codex followed by the instruction on a new line.",
         };
-      }
-      if (project && !/^[a-z0-9][a-z0-9_-]{0,47}$/u.test(project)) {
-        return { kind: "invalid", reason: "The project key is invalid." };
       }
       if (body.length > MAX_INSTRUCTION_LENGTH) {
         return {
@@ -188,19 +184,15 @@ export function parseIntakeCommand(raw: string): IntakeCommand {
           reason: `The instruction exceeds ${MAX_INSTRUCTION_LENGTH} characters.`,
         };
       }
-      return { kind: "codex", ...(project ? { project } : {}), instruction: body };
+      return { kind: "codex", instruction: body };
     }
     case "/ask": {
-      const project = body ? args[0]?.toLowerCase() : undefined;
       const question = body || args.join(" ").trim();
-      if (body && args.length > 1) {
+      if (body && args.length > 0) {
         return {
           kind: "invalid",
-          reason: "Use /ask [project] followed by the question on a new line.",
+          reason: "Use /ask followed by the question on a new line.",
         };
-      }
-      if (project && !/^[a-z0-9][a-z0-9_-]{0,47}$/u.test(project)) {
-        return { kind: "invalid", reason: "The project key is invalid." };
       }
       if (!question) return { kind: "invalid", reason: "The codebase question is empty." };
       if (question.length > MAX_INSTRUCTION_LENGTH) {
@@ -209,7 +201,7 @@ export function parseIntakeCommand(raw: string): IntakeCommand {
           reason: `The question exceeds ${MAX_INSTRUCTION_LENGTH} characters.`,
         };
       }
-      return { kind: "ask", ...(project ? { project } : {}), question };
+      return { kind: "ask", question };
     }
     case "/status":
       return args.length <= 1
@@ -219,14 +211,10 @@ export function parseIntakeCommand(raw: string): IntakeCommand {
       return args.length <= 1
         ? { kind: "cancel", ...(args[0] ? { id: args[0] } : {}) }
         : { kind: "invalid", reason: "Use /cancel or /cancel <work-item-id>." };
-    case "/publish":
-      return args.length === 1
-        ? { kind: "publish", id: args[0] ?? "" }
-        : { kind: "invalid", reason: "Use /publish <work-item-id>." };
-    case "/deploy":
-      return args.length === 1
-        ? { kind: "deploy", id: args[0] ?? "" }
-        : { kind: "invalid", reason: "Use /deploy <work-item-id>." };
+    case "/ship":
+      return args.length === 0
+        ? { kind: "ship" }
+        : { kind: "invalid", reason: "Use /ship without arguments." };
     case "/feature": {
       const request = [args.join(" ").trim(), body].filter(Boolean).join("\n");
       if (!request) return { kind: "invalid", reason: "The feature request is empty." };
@@ -244,15 +232,10 @@ export function parseIntakeCommand(raw: string): IntakeCommand {
       }
       const action = args.shift()?.toLowerCase();
       if (action === "start") {
-        const project = args.shift()?.toLowerCase();
-        if (project && !/^[a-z0-9][a-z0-9_-]{0,47}$/u.test(project)) {
-          return { kind: "invalid", reason: "The project key is invalid." };
-        }
         const title = args.join(" ").trim();
         return {
           kind: "capture",
           action: "start",
-          ...(project ? { project } : {}),
           ...(title ? { title } : {}),
         };
       }
@@ -261,8 +244,7 @@ export function parseIntakeCommand(raw: string): IntakeCommand {
       }
       return {
         kind: "invalid",
-        reason:
-          "Use /capture start [project] [title], /capture status, /capture done, or /capture cancel.",
+        reason: "Use /capture start [title], /capture status, /capture done, or /capture cancel.",
       };
     }
     case "/dispatch": {
@@ -273,9 +255,9 @@ export function parseIntakeCommand(raw: string): IntakeCommand {
         : { kind: "dispatch", args: parsed };
     }
     case "/context":
-      return args.length <= 1
-        ? { kind: "context", ...(args[0] ? { project: args[0].toLowerCase() } : {}) }
-        : { kind: "invalid", reason: "Use /context or /context <project>." };
+      return args.length === 0
+        ? { kind: "context" }
+        : { kind: "invalid", reason: "Use /context without arguments." };
     case "/help":
       return args.length === 0
         ? { kind: "help" }

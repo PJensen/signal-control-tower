@@ -14,7 +14,7 @@ const COMMANDS: Array<{ kind: IntakeCommand["kind"]; line: string; mode?: Startu
   { kind: "codex", line: "🤖 /codex <task> — build or fix" },
   { kind: "ask", line: "🔎 /ask <question> — inspect code", mode: "ask" },
   { kind: "feature", line: "💡 /feature <idea> — save a request", mode: "feature" },
-  { kind: "capture", line: "🎙️ /capture start [project] [title] — record context" },
+  { kind: "capture", line: "🎙️ /capture start [title] — record context" },
   {
     kind: "dispatch",
     line: "📡 /dispatch [flags] — Entire summary of recent agent work",
@@ -22,9 +22,8 @@ const COMMANDS: Array<{ kind: IntakeCommand["kind"]; line: string; mode?: Startu
   },
   { kind: "status", line: "📍 /status [id] — check progress" },
   { kind: "cancel", line: "🛑 /cancel [id] — stop work" },
-  { kind: "publish", line: "🚀 /publish <id> — test · commit · push" },
-  { kind: "deploy", line: "🌎 /deploy <id> — ship production" },
-  { kind: "context", line: "🧭 /context [project] — show setup" },
+  { kind: "ship", line: "🚀 /ship — refresh main · test · migrate · deploy" },
+  { kind: "context", line: "🧭 /context — show workspace setup" },
   { kind: "help", line: "✨ /help — show this card" },
 ];
 

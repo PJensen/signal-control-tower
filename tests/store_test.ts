@@ -14,7 +14,6 @@ function record(id: string, status: "queued" | "running" | "completed") {
   return {
     item: {
       id,
-      project: "mfiq",
       instruction: "Test work item",
       attachments: [],
       source: {

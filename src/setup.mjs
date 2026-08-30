@@ -57,23 +57,18 @@ export function createSetupConfig(input) {
     },
     entire: { executable: input.entireExecutable },
     stateDirectory: ".signal-control-tower",
-    projects: {
-      mfiq: {
-        path: input.projectPath,
-        allowWrite: true,
-        baseRef: "HEAD",
-        isolatedWorktree: true,
-        validateCommand: ["npm", "run", "validate"],
-        ...(input.enableRelease
-          ? {
-            release: {
-              publishRemote: "origin",
-              deployCommand: ["npm", "run", "deploy"],
-            },
-          }
-          : {}),
-      },
+    workspace: {
+      path: input.projectPath,
+      allowWrite: true,
+      validateCommand: ["npm", "run", "test"],
+      shipCommands: [
+        ["npm", "install"],
+        ["npm", "run", "test"],
+        ["npm", "run", "migrate:remote"],
+        ["npm", "run", "deploy"],
+      ],
     },
+    mcp: { host: "127.0.0.1", port: 8765 },
   };
 }
 
@@ -379,7 +374,6 @@ export async function runSetup() {
         "Allowed Signal sender (number or ACI)",
         account.account,
       );
-      const enableRelease = await confirm(terminal, "Enable /publish and /deploy for MFIQ?", false);
       const config = createSetupConfig({
         account: account.account,
         allowedSender,
@@ -388,7 +382,7 @@ export async function runSetup() {
         codexExecutable,
         entireExecutable: await findExecutable("entire") ?? "entire",
         projectPath,
-        enableRelease,
+        enableRelease: false,
       });
       await writeFile(configPath, `${JSON.stringify(config, null, 2)}\n`, { mode: 0o600 });
       await chmod(configPath, 0o600);

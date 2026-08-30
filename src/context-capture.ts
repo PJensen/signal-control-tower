@@ -19,7 +19,7 @@ interface CapturedMessage {
 
 export interface CaptureSession {
   id: string;
-  project: string;
+  workspace: string;
   title?: string;
   sender: string;
   conversation: string;
@@ -92,7 +92,7 @@ export class ContextCaptureStore {
   async start(
     sender: string,
     conversation: string,
-    project: string,
+    workspace: string,
     title?: string,
   ): Promise<CaptureSession> {
     const key = sessionKey(sender, conversation);
@@ -101,7 +101,7 @@ export class ContextCaptureStore {
       id: `cap-${new Date().toISOString().replaceAll(/[-:]/gu, "").slice(0, 13)}-${
         randomUUID().replaceAll("-", "").slice(0, 6)
       }`,
-      project,
+      workspace,
       ...(title ? { title } : {}),
       sender,
       conversation,
@@ -165,11 +165,11 @@ export class ContextCaptureStore {
   async complete(
     sender: string,
     conversation: string,
-    projectPath: string,
+    workspacePath: string,
   ): Promise<CompletedCapture | undefined> {
     const session = this.activeFor(sender, conversation);
     if (!session) return undefined;
-    const projectRoot = await realpath(projectPath);
+    const projectRoot = await realpath(workspacePath);
     const outputDirectory = join(projectRoot, "docs", "context", "inbox");
     await mkdir(outputDirectory, { recursive: true, mode: 0o755 });
     const resolvedOutput = await realpath(outputDirectory);
@@ -177,7 +177,7 @@ export class ContextCaptureStore {
     if (
       withinProject === ".." || withinProject.startsWith(`..${sep}`) || isAbsolute(withinProject)
     ) {
-      throw new Error("The context directory resolves outside the registered project.");
+      throw new Error("The context directory resolves outside the workspace.");
     }
 
     const assetDirectory = join(resolvedOutput, "assets", session.id);
@@ -205,7 +205,7 @@ export class ContextCaptureStore {
     const lines = [
       "---",
       `capture_id: ${quoted(session.id)}`,
-      `project: ${quoted(session.project)}`,
+      `workspace: ${quoted(session.workspace)}`,
       `sender: ${quoted(session.sender)}`,
       `conversation: ${quoted(session.conversation)}`,
       `started_at: ${quoted(session.startedAt)}`,

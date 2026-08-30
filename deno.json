@@ -1,10 +1,10 @@
 {
   "nodeModulesDir": "none",
   "tasks": {
-    "start": "deno run --allow-read --allow-write --allow-run --allow-env src/main.ts",
+    "start": "deno run --allow-read --allow-write --allow-run --allow-env --allow-net=127.0.0.1:8765 src/main.ts",
     "doctor": "deno run --allow-read --allow-write --allow-run --allow-env src/main.ts --doctor",
     "check": "deno fmt --check && deno lint && deno check src/main.ts src/send.ts",
-    "test": "deno test --allow-read --allow-write tests",
+    "test": "deno test --allow-read --allow-write --allow-net tests",
     "validate": "deno task check && deno task test"
   },
   "fmt": {

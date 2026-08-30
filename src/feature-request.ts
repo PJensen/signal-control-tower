@@ -1,12 +1,18 @@
 import { createHash } from "node:crypto";
+import { execFile } from "node:child_process";
 import { mkdir, realpath, writeFile } from "node:fs/promises";
 import { isAbsolute, join, relative, sep } from "node:path";
 
 import type { IncomingSignalMessage } from "./types.ts";
+import { promisify } from "node:util";
+
+const execFileAsync = promisify(execFile);
 
 export interface RecordedFeatureRequest {
   created: boolean;
   relativePath: string;
+  issueUrl?: string;
+  issueError?: string;
 }
 
 function quoted(value: string): string {
@@ -68,7 +74,37 @@ export async function recordFeatureRequest(
       flag: "wx",
       mode: 0o644,
     });
-    return { created: true, relativePath };
+    const title = request.split("\n", 1)[0]?.trim().slice(0, 256) || "Feature request";
+    const provenance = [
+      "## Request",
+      request.trim(),
+      "",
+      "## Signal provenance",
+      `- Sender: ${message.sender}`,
+      `- Conversation: ${message.groupId}`,
+      `- Timestamp: ${timestamp}`,
+    ].join("\n");
+    try {
+      const remote = (await execFileAsync("git", ["remote", "get-url", "origin"], {
+        cwd: projectRoot,
+        encoding: "utf8",
+      })).stdout.trim();
+      const match = remote.match(/github\.com[:/]([^/]+\/[^/.]+?)(?:\.git)?$/u);
+      if (!match?.[1]) throw new Error("origin is not a GitHub repository");
+      const issue = await execFileAsync("gh", [
+        "issue",
+        "create",
+        "--repo",
+        match[1],
+        "--title",
+        title,
+        "--body",
+        provenance,
+      ], { cwd: projectRoot, encoding: "utf8" });
+      return { created: true, relativePath, issueUrl: issue.stdout.trim() };
+    } catch (error) {
+      return { created: true, relativePath, issueError: (error as Error).message };
+    }
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === "EEXIST") return { created: false, relativePath };
     throw error;

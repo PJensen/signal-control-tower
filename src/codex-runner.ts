@@ -1,13 +1,11 @@
 import { type ChildProcess, execFile, spawn } from "node:child_process";
-import { mkdir } from "node:fs/promises";
-import { join } from "node:path";
 import { setTimeout } from "node:timers";
 import { promisify } from "node:util";
 
 import { buildCodexArguments } from "./codex-arguments.ts";
 import { extractArtifactDeclarations } from "./artifacts.ts";
 import { WorkItemStore } from "./store.ts";
-import type { IntakeConfig, ProjectConfig, WorkItem, WorkItemResult } from "./types.ts";
+import type { IntakeConfig, WorkItem, WorkItemResult, WorkspaceConfig } from "./types.ts";
 
 const execFileAsync = promisify(execFile);
 
@@ -25,7 +23,7 @@ interface ActiveRun {
   cancelling: boolean;
 }
 
-function taskPrompt(item: WorkItem, project: ProjectConfig): string {
+function taskPrompt(item: WorkItem, workspaceConfig: WorkspaceConfig): string {
   const attachmentNote = item.attachments.length === 0
     ? "No attachments were supplied."
     : `The Signal message included ${item.attachments.length} attachment(s). Their bytes are not exposed in this first intake version; do not claim to have inspected them.`;
@@ -39,9 +37,12 @@ function taskPrompt(item: WorkItem, project: ProjectConfig): string {
       : []),
     ...(item.mode === "question" ? [] : [
       `Before your final answer, run ${
-        project.validateCommand.join(" ")
+        workspaceConfig.validateCommand.join(" ")
       } and keep working to resolve failures. Do not report the task complete while required validation fails; if an external blocker prevents a passing run, report that blocker plainly.`,
     ]),
+    ...(item.mode === "question"
+      ? []
+      : ["Commit and push successful changes to the current Git branch before your final answer."]),
     "Do not wait for interactive approval; report any action that cannot be completed safely.",
     "To send a file back to Signal, put `ATTACHMENT: relative/path` on its own line in your final response. Only nominate files the user requested or that materially help answer the request.",
     attachmentNote,
@@ -171,15 +172,14 @@ export class CodexWorkQueue {
   }
 
   async #run(item: WorkItem): Promise<WorkItemResult> {
-    const project = this.#config.projects[item.project];
-    if (!project) throw new Error(`Project ${item.project} is no longer configured`);
-    const baseCommit = await git(project.path, ["rev-parse", project.baseRef]);
-    const workspace = await this.#workspace(item, project);
+    const workspaceConfig = this.#config.workspace;
+    const baseCommit = await git(workspaceConfig.path, ["rev-parse", "HEAD"]);
+    const workspace = workspaceConfig.path;
     await this.#store.update(item.id, { status: "running" });
     await this.#emit(item, { kind: "started", workspace });
 
-    const codex = await this.#executeCodex(item, project, workspace);
-    if (item.mode !== "question") await this.#validate(project, workspace);
+    const codex = await this.#executeCodex(item, workspaceConfig, workspace);
+    if (item.mode !== "question") await this.#validate(workspaceConfig, workspace);
     const artifacts = extractArtifactDeclarations(
       codex.summary || "Codex completed without a final answer.",
     );
@@ -209,35 +209,19 @@ export class CodexWorkQueue {
     return result;
   }
 
-  async #workspace(item: WorkItem, project: ProjectConfig): Promise<string> {
-    if (
-      item.mode === "question" || !project.allowWrite || !project.isolatedWorktree || !item.branch
-    ) {
-      return project.path;
-    }
-    const directory = join(this.#config.stateDirectory, "worktrees", item.id);
-    await mkdir(join(this.#config.stateDirectory, "worktrees"), { recursive: true, mode: 0o700 });
-    await execFileAsync(
-      "git",
-      ["-C", project.path, "worktree", "add", "-b", item.branch, directory, project.baseRef],
-      { encoding: "utf8", maxBuffer: 2_000_000 },
-    );
-    return directory;
-  }
-
   async #executeCodex(
     item: WorkItem,
-    project: ProjectConfig,
+    workspaceConfig: WorkspaceConfig,
     workspace: string,
   ): Promise<{ summary: string; threadId?: string }> {
     const args = buildCodexArguments({
       item,
-      project,
+      workspaceConfig,
       workspace,
       extraArgs: this.#config.codex.extraArgs,
       model: this.#config.codex.model,
       reasoningEffort: this.#config.codex.reasoningEffort,
-      prompt: taskPrompt(item, project),
+      prompt: taskPrompt(item, workspaceConfig),
     });
     const child = spawn(this.#config.codex.executable, args, {
       cwd: workspace,
@@ -295,8 +279,8 @@ export class CodexWorkQueue {
     return response;
   }
 
-  async #validate(project: ProjectConfig, workspace: string): Promise<void> {
-    const [executable, ...args] = project.validateCommand;
+  async #validate(workspaceConfig: WorkspaceConfig, workspace: string): Promise<void> {
+    const [executable, ...args] = workspaceConfig.validateCommand;
     if (!executable) throw new Error("The configured validation command is empty.");
     try {
       await execFileAsync(executable, args, {
@@ -313,7 +297,9 @@ export class CodexWorkQueue {
         ? error.message
         : String(error);
       throw new Error(
-        `Validation failed (${project.validateCommand.join(" ")}): ${truncate(output, 1500)}`,
+        `Validation failed (${workspaceConfig.validateCommand.join(" ")}): ${
+          truncate(output, 1500)
+        }`,
       );
     }
   }

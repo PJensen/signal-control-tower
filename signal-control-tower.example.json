@@ -16,17 +16,19 @@
     "executable": "entire"
   },
   "stateDirectory": ".signal-control-tower",
-  "projects": {
-    "app": {
-      "path": "../app",
-      "allowWrite": true,
-      "baseRef": "main",
-      "isolatedWorktree": true,
-      "validateCommand": ["npm", "run", "validate"],
-      "release": {
-        "publishRemote": "origin",
-        "deployCommand": ["npm", "run", "deploy"]
-      }
-    }
+  "workspace": {
+    "path": "../app",
+    "allowWrite": true,
+    "validateCommand": ["npm", "run", "test"],
+    "shipCommands": [
+      ["npm", "install"],
+      ["npm", "run", "test"],
+      ["npm", "run", "migrate:remote"],
+      ["npm", "run", "deploy"]
+    ]
+  },
+  "mcp": {
+    "host": "127.0.0.1",
+    "port": 8765
   }
 }

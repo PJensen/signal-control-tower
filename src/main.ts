@@ -1,4 +1,4 @@
-#!/usr/bin/env -S deno run --allow-read --allow-write --allow-run --allow-env
+#!/usr/bin/env -S deno run --allow-read --allow-write --allow-run --allow-env --allow-net=127.0.0.1:8765
 
 import { randomUUID } from "node:crypto";
 import { execFile } from "node:child_process";
@@ -14,9 +14,10 @@ import { recordFeatureRequest } from "./feature-request.ts";
 import { EventLog } from "./event-log.ts";
 import { SignalOutbox } from "./outbox.ts";
 import { parseIntakeCommand, signalNotificationToMessage } from "./protocol.ts";
-import { WorkItemReleaseManager } from "./release-manager.ts";
+import { cleanCommandOutput, WorkItemReleaseManager } from "./release-manager.ts";
 import { SignalJsonRpc } from "./signal-json-rpc.ts";
 import { WorkItemStore } from "./store.ts";
+import { startMcpServer } from "./mcp-server.ts";
 import {
   commandEnabled,
   helpMessage,
@@ -44,25 +45,15 @@ function group(value: unknown, groupId: string): Record<string, unknown> | undef
 }
 
 function newWorkItem(
-  config: IntakeConfig,
   message: IncomingSignalMessage,
-  project: string,
   instruction: string,
   mode: "task" | "question",
 ): WorkItem {
   const id = randomUUID().replaceAll("-", "").slice(0, 10);
-  const projectConfig = config.projects[project];
-  if (!projectConfig) throw new Error(`Unknown project: ${project}`);
-  const stamp = new Date(message.timestamp).toISOString().replaceAll(/[-:]/gu, "").slice(0, 13);
-  const branch = mode === "task" && projectConfig.allowWrite && projectConfig.isolatedWorktree
-    ? `codex/signal-${stamp}-${id}`
-    : undefined;
   return {
     id,
     mode,
-    project,
     instruction,
-    ...(branch ? { branch } : {}),
     attachments: message.attachments,
     source: {
       transport: "signal",
@@ -78,22 +69,8 @@ function newWorkItem(
 function formatRecord(record: WorkItemRecord): string {
   const lines = [
     `${record.item.id}: ${record.status}`,
-    `project: ${record.item.project}`,
   ];
-  if (record.item.branch) lines.push(`branch: ${record.item.branch}`);
   if (record.result?.commit) lines.push(`commit: ${record.result.commit}`);
-  if (record.publication) {
-    lines.push(
-      `published: ${record.publication.remote}/${record.publication.branch} @ ${
-        record.publication.commit.slice(0, 12)
-      }`,
-    );
-  }
-  if (record.deployment) {
-    lines.push(
-      `deployed: ${record.deployment.commit.slice(0, 12)} @ ${record.deployment.deployedAt}`,
-    );
-  }
   if (record.result?.filesChanged !== undefined) {
     lines.push(`files changed: ${record.result.filesChanged}`);
   }
@@ -105,9 +82,7 @@ function completion(item: WorkItem, result: WorkItemResult): string {
   const lines = [
     item.mode === "question" ? "✓ answered" : "✓ completed",
     `id: ${item.id}`,
-    `project: ${item.project}`,
   ];
-  if (item.branch) lines.push(`branch: ${item.branch}`);
   lines.push(`files changed: ${String(result.filesChanged ?? 0)}`);
   if (result.commit) lines.push(`commit: ${result.commit}`);
   lines.push("", "Summary:", result.summary);
@@ -123,17 +98,15 @@ async function verifyLocalExecution(config: IntakeConfig): Promise<void> {
     encoding: "utf8",
     timeout: 10_000,
   });
-  for (const [key, project] of Object.entries(config.projects)) {
-    try {
-      await execFileAsync("git", ["-C", project.path, "rev-parse", "--show-toplevel"], {
-        encoding: "utf8",
-        timeout: 10_000,
-      });
-    } catch (error) {
-      throw new Error(`Project ${key} is not an accessible git checkout at ${project.path}`, {
-        cause: error,
-      });
-    }
+  try {
+    await execFileAsync("git", ["-C", config.workspace.path, "rev-parse", "--show-toplevel"], {
+      encoding: "utf8",
+      timeout: 10_000,
+    });
+  } catch (error) {
+    throw new Error(`Workspace is not an accessible git checkout at ${config.workspace.path}`, {
+      cause: error,
+    });
   }
 }
 
@@ -197,6 +170,13 @@ async function run(): Promise<void> {
       await signal.sendGroupMessage(`✗ ${command.reason}`);
       return;
     }
+    const activeCapture = captures.activeFor(message.sender, message.groupId);
+    if (activeCapture && command.kind !== "capture") {
+      await signal.sendGroupMessage(
+        `✗ capture ${activeCapture.id} is active; only /capture status, /capture done, or /capture cancel are allowed.`,
+      );
+      return;
+    }
     if (!commandEnabled(command, options)) {
       await signal.sendGroupMessage(
         `✗ /${command.kind} is disabled in this startup mode. Enabled: ${
@@ -217,7 +197,7 @@ async function run(): Promise<void> {
             ? [
               `🎙️ capture active`,
               `session: ${active.id}`,
-              `project: ${active.project}`,
+              `workspace: ${active.workspace}`,
               `messages: ${active.messages.length}`,
               `started: ${active.startedAt}`,
             ].join("\n")
@@ -239,15 +219,12 @@ async function run(): Promise<void> {
           await signal.sendGroupMessage("No active context capture.");
           return;
         }
-        const project = config.projects[active.project];
-        if (!project) {
-          await signal.sendGroupMessage(
-            `✗ capture project is no longer configured: ${active.project}`,
-          );
-          return;
-        }
         try {
-          const completed = await captures.complete(message.sender, message.groupId, project.path);
+          const completed = await captures.complete(
+            message.sender,
+            message.groupId,
+            config.workspace.path,
+          );
           if (!completed) throw new Error("The capture is no longer active.");
           await eventLog.record("context.capture.completed", { ...completed });
           await signal.sendGroupMessage([
@@ -263,34 +240,21 @@ async function run(): Promise<void> {
         return;
       }
 
-      const configuredProjects = Object.keys(config.projects);
-      const projectKey = command.project ??
-        (configuredProjects.length === 1 ? configuredProjects[0] : undefined);
-      if (!projectKey) {
-        await signal.sendGroupMessage(
-          "✗ specify a project when more than one project is configured.",
-        );
-        return;
-      }
-      if (!config.projects[projectKey]) {
-        await signal.sendGroupMessage(`✗ unknown project: ${projectKey}`);
-        return;
-      }
       try {
         const started = await captures.start(
           message.sender,
           message.groupId,
-          projectKey,
+          "workspace",
           command.title,
         );
         await eventLog.record("context.capture.started", {
           captureId: started.id,
-          project: started.project,
+          workspace: started.workspace,
           sender: started.sender,
           conversation: started.conversation,
         });
         await signal.sendGroupMessage([
-          `🎙️ Capturing context for ${projectKey}`,
+          "🎙️ Capturing context for the workspace",
           `session: ${started.id}`,
           "Send messages and attachments normally.",
           "Use /capture done when finished.",
@@ -301,25 +265,11 @@ async function run(): Promise<void> {
       return;
     }
     if (command.kind === "context") {
-      if (command.project) {
-        const project = config.projects[command.project];
-        await signal.sendGroupMessage(
-          project
-            ? [
-              `project: ${command.project}`,
-              `write: ${project.allowWrite ? "allowed" : "read-only"}`,
-              `workspace: ${
-                project.isolatedWorktree ? "isolated git worktree" : "registered checkout"
-              }`,
-              `base: ${project.baseRef}`,
-            ].join("\n")
-            : `✗ unknown project: ${command.project}`,
-        );
-      } else {
-        await signal.sendGroupMessage(
-          `projects: ${Object.keys(config.projects).sort().join(", ")}`,
-        );
-      }
+      await signal.sendGroupMessage([
+        `workspace: ${config.workspace.path}`,
+        `write: ${config.workspace.allowWrite ? "allowed" : "read-only"}`,
+        `validation: ${config.workspace.validateCommand.join(" ")}`,
+      ].join("\n"));
       return;
     }
     if (command.kind === "status") {
@@ -345,93 +295,59 @@ async function run(): Promise<void> {
       );
       return;
     }
-    if (command.kind === "publish" || command.kind === "deploy") {
-      const record = store.get(command.id);
-      if (!record || record.item.source.sender !== message.sender) {
-        await signal.sendGroupMessage("No matching work item.");
-        return;
-      }
-      if (
-        command.kind === "deploy" && record.deployment &&
-        record.deployment.commit === record.publication?.commit
-      ) {
-        await signal.sendGroupMessage(
-          `Already deployed: ${record.item.id} @ ${record.deployment.commit.slice(0, 12)}`,
-        );
-        return;
-      }
+    if (command.kind === "ship") {
       try {
-        await signal.sendGroupMessage(
-          `${
-            command.kind === "publish" ? "Publishing" : "Deploying to production"
-          }…\nid: ${record.item.id}`,
-        );
-        if (command.kind === "publish") {
-          const publication = await releases.publish(record);
-          await store.update(record.item.id, { publication });
-          await signal.sendGroupMessage([
-            "✓ published",
-            `id: ${record.item.id}`,
-            `remote: ${publication.remote}`,
-            `branch: ${publication.branch}`,
-            `commit: ${publication.commit.slice(0, 12)}`,
-          ].join("\n"));
-        } else {
-          const { deployment, output } = await releases.deploy(record);
-          await store.update(record.item.id, { deployment });
-          const outputTail = output.length > 1200 ? `…${output.slice(-1199)}` : output;
-          await signal.sendGroupMessage([
-            "✓ deployed to production",
-            `id: ${record.item.id}`,
-            `commit: ${deployment.commit.slice(0, 12)}`,
-            ...(outputTail ? ["", "Output:", outputTail] : []),
-          ].join("\n"));
-        }
+        await signal.sendGroupMessage("Shipping workspace…");
+        const result = await releases.ship((progress) => signal.sendGroupMessage(progress));
+        const diagnosticLines = result.output.split("\n").filter((line) => line.trim()).length;
+        await signal.sendGroupMessage([
+          "🚀 SHIP COMPLETE",
+          "",
+          `Commit: ${result.commit.slice(0, 12)}`,
+          `Local changes: ${result.stash ? `preserved in ${result.stash}` : "none detected"}`,
+          "",
+          "Steps",
+          ...result.steps.map((step) => `✅ ${step}`),
+          ...(diagnosticLines > 0
+            ? ["", "Diagnostics", `⚠️ ${diagnosticLines} output lines emitted`]
+            : []),
+        ].join("\n"));
       } catch (error) {
         await signal.sendGroupMessage(
-          `✗ ${command.kind} failed\nid: ${record.item.id}\n${(error as Error).message}`,
+          `✗ ship failed\n${cleanCommandOutput((error as Error).message)}`,
         );
       }
       return;
     }
     if (command.kind === "feature") {
-      const configuredProjects = Object.keys(config.projects);
-      const projectKey = configuredProjects.length === 1 ? configuredProjects[0] : undefined;
-      const project = projectKey ? config.projects[projectKey] : undefined;
-      if (!project) {
-        await signal.sendGroupMessage("✗ /feature requires exactly one configured project.");
-        return;
-      }
       try {
-        const recorded = await recordFeatureRequest(project.path, message, command.request);
-        await signal.sendGroupMessage(
-          recorded.created
-            ? `✓ feature recorded\npath: ${recorded.relativePath}`
-            : `Already recorded\npath: ${recorded.relativePath}`,
+        const recorded = await recordFeatureRequest(
+          config.workspace.path,
+          message,
+          command.request,
         );
+        await signal.sendGroupMessage([
+          recorded.created ? "✓ feature recorded" : "Already recorded",
+          `path: ${recorded.relativePath}`,
+          ...(recorded.issueUrl ? [`github issue: ${recorded.issueUrl}`] : []),
+          ...(recorded.issueError ? [`github issue unavailable: ${recorded.issueError}`] : []),
+        ].join("\n"));
       } catch (error) {
         await signal.sendGroupMessage(`✗ feature request failed\n${(error as Error).message}`);
       }
       return;
     }
     if (command.kind === "dispatch") {
-      const configuredProjects = Object.keys(config.projects);
-      const projectKey = configuredProjects.length === 1 ? configuredProjects[0] : undefined;
-      const project = projectKey ? config.projects[projectKey] : undefined;
-      if (!project) {
-        await signal.sendGroupMessage("✗ /dispatch requires exactly one configured project.");
-        return;
-      }
       try {
         await signal.sendGroupMessage("Generating Entire dispatch…");
         const result = await generateEntireDispatch(
           config.entire.executable,
-          project.path,
+          config.workspace.path,
           command.args,
         );
         await eventLog.record("entire.dispatch.completed", {
           executable: config.entire.executable,
-          cwd: project.path,
+          cwd: config.workspace.path,
           args: ["dispatch", ...command.args],
           stdout: result.stdout,
           stderr: result.stderr,
@@ -448,7 +364,7 @@ async function run(): Promise<void> {
         const failure = error as Error & { stdout?: string; stderr?: string };
         await eventLog.record("entire.dispatch.failed", {
           executable: config.entire.executable,
-          cwd: project.path,
+          cwd: config.workspace.path,
           args: ["dispatch", ...command.args],
           error: failure.message,
           stdout: failure.stdout ?? "",
@@ -461,19 +377,6 @@ async function run(): Promise<void> {
       return;
     }
 
-    const configuredProjects = Object.keys(config.projects);
-    const project = command.project ??
-      (configuredProjects.length === 1 ? configuredProjects[0] : undefined);
-    if (!project) {
-      await signal.sendGroupMessage(
-        "✗ specify a project when more than one project is configured.",
-      );
-      return;
-    }
-    if (!config.projects[project]) {
-      await signal.sendGroupMessage(`✗ unknown project: ${project}`);
-      return;
-    }
     const messageId = `${message.groupId}:${message.sender}:${message.timestamp}`;
     const duplicate = store.findByMessageId(messageId);
     if (duplicate) {
@@ -482,14 +385,12 @@ async function run(): Promise<void> {
     }
     const mode = command.kind === "ask" ? "question" : "task";
     const instruction = command.kind === "ask" ? command.question : command.instruction;
-    const item = newWorkItem(config, message, project, instruction, mode);
+    const item = newWorkItem(message, instruction, mode);
     await store.put({ item, status: "queued", updatedAt: new Date().toISOString() });
     await signal.sendGroupMessage([
       "✓ task accepted",
       `id: ${item.id}`,
-      `project: ${item.project}`,
       `mode: ${item.mode === "question" ? "read-only question" : "work task"}`,
-      ...(item.branch ? [`branch: ${item.branch}`] : []),
       `attachments: ${item.attachments.length} metadata-only`,
     ].join("\n"));
     queue.enqueue(item);
@@ -509,11 +410,7 @@ async function run(): Promise<void> {
       }
       if (event.result.artifactPaths?.length) {
         try {
-          const project = config.projects[item.project];
-          if (!project) throw new Error(`Project ${item.project} is no longer configured.`);
-          const workspace = project.isolatedWorktree && item.branch
-            ? join(config.stateDirectory, "worktrees", item.id)
-            : project.path;
+          const workspace = config.workspace.path;
           const attachments = await validateArtifactPaths(workspace, event.result.artifactPaths);
           await signal.sendGroupAttachments(`Artifacts from ${item.id}`, attachments);
         } catch (error) {
@@ -522,40 +419,6 @@ async function run(): Promise<void> {
               (error as Error).message.slice(0, 1500)
             }`,
           );
-        }
-      }
-      if (item.mode !== "question" && config.projects[item.project]?.release) {
-        try {
-          await signal.sendGroupMessage(`Validating and publishing…\nid: ${item.id}`);
-          const record = store.get(item.id);
-          if (!record) throw new Error(`Work item ${item.id} disappeared from the store.`);
-          const publication = await releases.publish(record);
-          const published = await store.update(item.id, { publication });
-          await signal.sendGroupMessage([
-            "✓ validated and published",
-            `id: ${item.id}`,
-            `branch: ${publication.remote}/${publication.branch}`,
-            `commit: ${publication.commit.slice(0, 12)}`,
-          ].join("\n"));
-
-          if (config.projects[item.project]?.release?.deployCommand) {
-            await signal.sendGroupMessage(`Deploying to production…\nid: ${item.id}`);
-            const deployed = await releases.deploy(published);
-            await store.update(item.id, { deployment: deployed.deployment });
-            await signal.sendGroupMessage([
-              "✓ deployed to production",
-              `id: ${item.id}`,
-              `commit: ${deployed.deployment.commit.slice(0, 12)}`,
-              ...(deployed.output ? [deployed.output.slice(0, 1200)] : []),
-            ].join("\n"));
-          }
-        } catch (error) {
-          await signal.sendGroupMessage([
-            "✗ automatic release stopped",
-            `id: ${item.id}`,
-            (error as Error).message.slice(0, 1500),
-            "The completed work is retained; use /publish or /deploy to retry.",
-          ].join("\n"));
         }
       }
     } else if (event.kind === "cancelled") {
@@ -581,9 +444,7 @@ async function run(): Promise<void> {
 
   if (options.doctor) {
     process.stdout.write(
-      `Signal Control Tower configuration is valid for ${config.signal.groupName}; projects: ${
-        Object.keys(config.projects).join(", ")
-      }\n`,
+      `Signal Control Tower configuration is valid for ${config.signal.groupName}; workspace: ${config.workspace.path}\n`,
     );
     signal.stop();
     return;
@@ -602,8 +463,15 @@ async function run(): Promise<void> {
     }
   });
   await outbox.start();
+  const mcpServer = await startMcpServer({
+    host: config.mcp.host,
+    port: config.mcp.port,
+    stateDirectory: config.stateDirectory,
+    workspace: config.workspace.path,
+  });
 
   process.stdout.write(`Listening to Signal group ${config.signal.groupName}\n`);
+  process.stdout.write(`MCP listening at http://${config.mcp.host}:${config.mcp.port}/mcp\n`);
   let stopping = false;
   const stop = async (shutdownSignal: "SIGINT" | "SIGTERM"): Promise<void> => {
     if (stopping) return;
@@ -631,6 +499,7 @@ async function run(): Promise<void> {
       );
     } finally {
       outbox.stop();
+      await new Promise<void>((resolve) => mcpServer.close(() => resolve()));
       signal.stop();
       process.exitCode = 0;
     }

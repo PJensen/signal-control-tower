@@ -47,11 +47,15 @@ Deno.test("setup emits least-privilege MFIQ configuration", () => {
     extraArgs: [],
   });
   assertEquals(config.entire, { executable: "entire" });
-  assertEquals(config.projects.mfiq, {
+  assertEquals(config.workspace, {
     path: "/src/mfiq.ai",
     allowWrite: true,
-    baseRef: "HEAD",
-    isolatedWorktree: true,
-    validateCommand: ["npm", "run", "validate"],
+    validateCommand: ["npm", "run", "test"],
+    shipCommands: [
+      ["npm", "install"],
+      ["npm", "run", "test"],
+      ["npm", "run", "migrate:remote"],
+      ["npm", "run", "deploy"],
+    ],
   });
 });
