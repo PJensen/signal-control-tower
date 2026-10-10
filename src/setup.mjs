@@ -249,13 +249,10 @@ function listGroups(signalExecutable, account) {
 }
 
 async function discoverGroups(terminal, signalExecutable, account) {
-  let groups = listGroups(signalExecutable, account);
-  if (groups.length > 0) return groups;
-  process.stdout.write("No groups are synchronized; requesting them from the primary device…\n");
+  process.stdout.write("Refreshing groups from the primary device…\n");
   runCapture(signalExecutable, ["--account", account, "sendSyncRequest"]);
   runInteractive(terminal, signalExecutable, ["--account", account, "receive", "--timeout", "10"]);
-  groups = listGroups(signalExecutable, account);
-  return groups;
+  return listGroups(signalExecutable, account);
 }
 
 function runTower(terminal, denoExecutable, args) {
