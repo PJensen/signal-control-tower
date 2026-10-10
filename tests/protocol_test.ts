@@ -26,6 +26,13 @@ Deno.test("parseIntakeCommand keeps questions read-only", () => {
   });
 });
 
+Deno.test("parseIntakeCommand accepts a first-line question with follow-up paragraphs", () => {
+  assertEquals(parseIntakeCommand("/ask Can this work?\nWhat persists?\n\nWhat is next?"), {
+    kind: "ask",
+    question: "Can this work?\nWhat persists?\n\nWhat is next?",
+  });
+});
+
 Deno.test("parseIntakeCommand maps dispatch directly to Entire arguments", () => {
   assertEquals(parseIntakeCommand("/dispatch --since 7d --voice neutral"), {
     kind: "dispatch",

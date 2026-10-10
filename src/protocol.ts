@@ -187,13 +187,7 @@ export function parseIntakeCommand(raw: string): IntakeCommand {
       return { kind: "codex", instruction: body };
     }
     case "/ask": {
-      const question = body || args.join(" ").trim();
-      if (body && args.length > 0) {
-        return {
-          kind: "invalid",
-          reason: "Use /ask followed by the question on a new line.",
-        };
-      }
+      const question = [args.join(" ").trim(), body].filter(Boolean).join("\n");
       if (!question) return { kind: "invalid", reason: "The codebase question is empty." };
       if (question.length > MAX_INSTRUCTION_LENGTH) {
         return {
