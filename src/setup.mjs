@@ -355,10 +355,10 @@ export async function runSetup() {
     }
     process.stdout.write("✓ Codex authentication is active\n");
 
-    const defaultProjectPath = resolve(process.cwd(), "../mfiq.ai");
-    const projectPath = resolve(await input(terminal, "MFIQ checkout path", defaultProjectPath));
+    const defaultProjectPath = ".";
+    const projectPath = resolve(await input(terminal, "Workspace checkout path", defaultProjectPath));
     runCapture("git", ["-C", projectPath, "rev-parse", "--show-toplevel"]);
-    process.stdout.write(`✓ MFIQ checkout: ${projectPath}\n`);
+    process.stdout.write(`✓ Workspace checkout: ${projectPath}\n`);
 
     const configPath = resolve("signal-control-tower.json");
     let writeConfig = true;
