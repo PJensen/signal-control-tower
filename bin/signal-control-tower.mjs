@@ -64,7 +64,13 @@ if (command === "setup") {
   const modeArgs = command === "doctor" ? ["--doctor", ...args] : args;
   child = spawnSync(
     deno,
-    ["run", ...permissions, resolve(packageRoot, entrypoint), ...modeArgs],
+    [
+      "run",
+      "--node-modules-dir=none",
+      ...permissions,
+      resolve(packageRoot, entrypoint),
+      ...modeArgs,
+    ],
     {
       cwd: process.cwd(),
       env: process.env,
