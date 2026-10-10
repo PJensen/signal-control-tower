@@ -24,6 +24,7 @@ const COMMANDS: Array<{ kind: IntakeCommand["kind"]; line: string; mode?: Startu
   { kind: "cancel", line: "🛑 /cancel [id] — stop work" },
   { kind: "ship", line: "🚀 /ship — refresh main · test · migrate · deploy" },
   { kind: "context", line: "🧭 /context — show workspace setup" },
+  { kind: "model", line: "🧠 /model [alias] — show or change Codex model" },
   { kind: "help", line: "✨ /help — show this card" },
 ];
 
@@ -68,12 +69,13 @@ export function parseStartupOptions(args: string[]): StartupOptions {
 function enabledCommands(options: StartupOptions): typeof COMMANDS {
   if (!options.restricted) return COMMANDS;
   return COMMANDS.filter((command) =>
-    command.kind === "help" || (command.mode !== undefined && options.modes.includes(command.mode))
+    command.kind === "help" || command.kind === "model" ||
+    (command.mode !== undefined && options.modes.includes(command.mode))
   );
 }
 
 export function commandEnabled(command: IntakeCommand, options: StartupOptions): boolean {
-  if (!options.restricted || command.kind === "help") return true;
+  if (!options.restricted || command.kind === "help" || command.kind === "model") return true;
   const definition = COMMANDS.find((candidate) => candidate.kind === command.kind);
   return definition?.mode !== undefined && options.modes.includes(definition.mode);
 }

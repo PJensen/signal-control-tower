@@ -99,6 +99,7 @@ export type IntakeCommand =
   }
   | { kind: "dispatch"; args: string[] }
   | { kind: "context" }
+  | { kind: "model"; alias?: string }
   | { kind: "help" }
   | { kind: "ignore" }
   | { kind: "invalid"; reason: string };

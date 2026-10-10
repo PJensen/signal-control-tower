@@ -252,6 +252,10 @@ export function parseIntakeCommand(raw: string): IntakeCommand {
       return args.length === 0
         ? { kind: "context" }
         : { kind: "invalid", reason: "Use /context without arguments." };
+    case "/model":
+      return args.length <= 1 && !body
+        ? { kind: "model", ...(args[0] ? { alias: args[0].toLowerCase() } : {}) }
+        : { kind: "invalid", reason: "Use /model [alias] on one line." };
     case "/help":
       return args.length === 0
         ? { kind: "help" }

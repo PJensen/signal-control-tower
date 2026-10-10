@@ -2,7 +2,8 @@
 
 import { randomUUID } from "node:crypto";
 import { execFile } from "node:child_process";
-import { join } from "node:path";
+import { readFile, rename, writeFile } from "node:fs/promises";
+import { join, resolve } from "node:path";
 import { promisify } from "node:util";
 
 import { generateEntireDispatch, signalMessageBlocks } from "./entire.ts";
@@ -34,6 +35,36 @@ import type {
 } from "./types.ts";
 
 const execFileAsync = promisify(execFile);
+
+const MODEL_PRESETS: Record<string, { model: string; reasoningEffort: string }> = {
+  "luna-easy": { model: "gpt-6-luna", reasoningEffort: "low" },
+  "luna-med": { model: "gpt-6-luna", reasoningEffort: "medium" },
+  "luna-hard": { model: "gpt-6-luna", reasoningEffort: "high" },
+  "terra-easy": { model: "gpt-5.6-terra", reasoningEffort: "low" },
+  "terra-med": { model: "gpt-5.6-terra", reasoningEffort: "medium" },
+  "terra-hard": { model: "gpt-5.6-terra", reasoningEffort: "high" },
+  "sol-6.1-easy": { model: "gpt-6.1-sol", reasoningEffort: "low" },
+  "sol-6.1-med": { model: "gpt-6.1-sol", reasoningEffort: "medium" },
+  "sol-6.1-hard": { model: "gpt-6.1-sol", reasoningEffort: "high" },
+};
+
+async function persistModelPreset(
+  configPath: string,
+  config: IntakeConfig,
+  preset: { model: string; reasoningEffort: string },
+): Promise<void> {
+  const path = resolve(configPath);
+  const root = JSON.parse(await readFile(path, "utf8")) as Record<string, unknown>;
+  const codex = typeof root.codex === "object" && root.codex !== null
+    ? root.codex as Record<string, unknown>
+    : {};
+  root.codex = { ...codex, model: preset.model, reasoningEffort: preset.reasoningEffort };
+  const temporaryPath = `${path}.${process.pid}.tmp`;
+  await writeFile(temporaryPath, `${JSON.stringify(root, null, 2)}\n`, { mode: 0o600 });
+  await rename(temporaryPath, path);
+  config.codex.model = preset.model;
+  config.codex.reasoningEffort = preset.reasoningEffort;
+}
 
 function group(value: unknown, groupId: string): Record<string, unknown> | undefined {
   return Array.isArray(value)
@@ -270,6 +301,32 @@ async function run(): Promise<void> {
         `write: ${config.workspace.allowWrite ? "allowed" : "read-only"}`,
         `validation: ${config.workspace.validateCommand.join(" ")}`,
       ].join("\n"));
+      return;
+    }
+    if (command.kind === "model") {
+      if (!command.alias) {
+        await signal.sendGroupMessage([
+          `Current model: ${config.codex.model} (${config.codex.reasoningEffort})`,
+          "Aliases: luna-easy, luna-med, luna-hard, terra-easy, terra-med, terra-hard, sol-6.1-easy, sol-6.1-med, sol-6.1-hard",
+          "Use /model <alias> to switch; the choice is saved for the next request and future restarts.",
+        ].join("\n"));
+        return;
+      }
+      const preset = MODEL_PRESETS[command.alias];
+      if (!preset) {
+        await signal.sendGroupMessage(
+          `✗ Unknown model alias: ${command.alias}. Send /model to see available aliases.`,
+        );
+        return;
+      }
+      try {
+        await persistModelPreset(options.configPath, config, preset);
+        await signal.sendGroupMessage(
+          `✓ Model set to ${command.alias} (${preset.model}, ${preset.reasoningEffort}). Applies to the next request.`,
+        );
+      } catch (error) {
+        await signal.sendGroupMessage(`✗ could not save model setting\n${(error as Error).message}`);
+      }
       return;
     }
     if (command.kind === "status") {
