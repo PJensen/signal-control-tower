@@ -261,6 +261,7 @@ async function discoverGroups(terminal, signalExecutable, account) {
 function runTower(terminal, denoExecutable, args) {
   runInteractive(terminal, denoExecutable, [
     "run",
+    "--node-modules-dir=none",
     "--allow-read",
     "--allow-write",
     "--allow-run",
