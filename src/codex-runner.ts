@@ -40,9 +40,6 @@ function taskPrompt(item: WorkItem, workspaceConfig: WorkspaceConfig): string {
         workspaceConfig.validateCommand.join(" ")
       } and keep working to resolve failures. Do not report the task complete while required validation fails; if an external blocker prevents a passing run, report that blocker plainly.`,
     ]),
-    ...(item.mode === "question"
-      ? []
-      : ["Commit and push successful changes to the current Git branch before your final answer."]),
     "Do not wait for interactive approval; report any action that cannot be completed safely.",
     "To send a file back to Signal, put `ATTACHMENT: relative/path` on its own line in your final response. Only nominate files the user requested or that materially help answer the request.",
     attachmentNote,
@@ -175,6 +172,10 @@ export class CodexWorkQueue {
     const workspaceConfig = this.#config.workspace;
     const baseCommit = await git(workspaceConfig.path, ["rev-parse", "HEAD"]);
     const workspace = workspaceConfig.path;
+    const startingStatus = await git(workspace, ["status", "--porcelain"]);
+    if (item.mode !== "question" && startingStatus) {
+      throw new Error("Write tasks require a clean workspace before Codex starts.");
+    }
     await this.#store.update(item.id, { status: "running" });
     await this.#emit(item, { kind: "started", workspace });
 
@@ -192,6 +193,10 @@ export class CodexWorkQueue {
       };
     }
     const finalCommit = await git(workspace, ["rev-parse", "HEAD"]);
+    if (finalCommit === baseCommit && await git(workspace, ["status", "--porcelain"])) {
+      await this.#commit(workspace, item);
+    }
+    const committedHead = await git(workspace, ["rev-parse", "HEAD"]);
     const committedFiles = await git(workspace, ["diff", "--name-only", baseCommit, "HEAD"]);
     const workingFiles = await git(workspace, ["status", "--porcelain"]);
     const files = new Set([
@@ -203,10 +208,16 @@ export class CodexWorkQueue {
       summary: finalSummary(artifacts.summary, "Codex completed without a final summary."),
       ...(artifacts.paths.length > 0 ? { artifactPaths: artifacts.paths } : {}),
       filesChanged: files.size,
-      ...(finalCommit !== baseCommit ? { commit: finalCommit.slice(0, 12) } : {}),
+      ...(committedHead !== baseCommit ? { commit: committedHead.slice(0, 12) } : {}),
       ...(codex.threadId ? { threadId: codex.threadId } : {}),
     };
     return result;
+  }
+
+  async #commit(workspace: string, item: WorkItem): Promise<void> {
+    const subject = item.instruction.replace(/\s+/gu, " ").trim().slice(0, 64);
+    await git(workspace, ["add", "--all"]);
+    await git(workspace, ["commit", "-m", `codex: ${subject || item.id}`]);
   }
 
   async #executeCodex(

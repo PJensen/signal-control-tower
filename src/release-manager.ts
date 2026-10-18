@@ -124,8 +124,14 @@ export class WorkItemReleaseManager {
       }
       await run("git", ["checkout", "main"], workspace);
       await run("git", ["fetch", "origin"], workspace);
-      await run("git", ["reset", "--hard", "origin/main"], workspace);
       await run("git", ["pull", "--ff-only", "origin", "main"], workspace);
+      const outgoing = (await run("git", ["rev-list", "--count", "origin/main..HEAD"], workspace))
+        .stdout;
+      if (outgoing !== "0") {
+        await onProgress?.(`Pushing ${outgoing} outgoing commit${outgoing === "1" ? "" : "s"}…`);
+        await run("git", ["push", "origin", "main"], workspace);
+        steps.push("git push origin main");
+      }
       const deployCommand = this.#config.workspace.shipCommands.at(-1);
       if (!deployCommand) {
         throw new Error("workspace.shipCommands must include a deployment command.");

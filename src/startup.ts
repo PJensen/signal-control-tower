@@ -22,7 +22,7 @@ const COMMANDS: Array<{ kind: IntakeCommand["kind"]; line: string; mode?: Startu
   },
   { kind: "status", line: "📍 /status [id] — check progress" },
   { kind: "cancel", line: "🛑 /cancel [id] — stop work" },
-  { kind: "ship", line: "🚀 /ship — refresh main · test · migrate · deploy" },
+  { kind: "ship", line: "🚀 /ship — push outgoing commits · test · migrate · deploy" },
   { kind: "context", line: "🧭 /context — show workspace setup" },
   { kind: "model", line: "🧠 /model [alias] — show or change Codex model" },
   { kind: "help", line: "✨ /help — show this card" },

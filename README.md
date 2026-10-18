@@ -124,7 +124,8 @@ Key semantics:
 - workspace.allowWrite controls write-task access. Questions always run read-only.
 - workspace.validateCommand runs in the workspace after every successful write task; failure makes
   the work item fail.
-- workspace.shipCommands runs in order for /ship. The final command is treated as deployment;
+- write tasks commit after validation when Codex has not already committed; /ship pushes outgoing
+  commits on main before running workspace.shipCommands. The final command is treated as deployment;
   preceding commands are preparation and validation.
 - stateDirectory contains durable state and should remain private and Git-ignored.
 - mcp.host and mcp.port configure the MCP listener, defaulting to loopback and port 8765.
@@ -160,7 +161,7 @@ commands receive an error response. /codex and /ask accept at most 20,000 charac
 | /ask <question> | Queue a read-only code question; multiline questions go on the next line. |
 | /status [id] | Show the sender's latest work item or a selected item. |
 | /cancel [id] | Request cancellation of the sender's queued or running item. |
-| /ship | Preserve local changes, refresh main, run shipCommands, and deploy. |
+| /ship | Preserve local changes, push outgoing main commits, run shipCommands, and deploy. |
 | /feature <idea> | Record a request under docs/features/; GitHub issue creation may also be attempted. |
 | /capture start [title] | Start capturing the sender's ordinary messages and available attachments. |
 | /capture status | Show the active capture and message count. |
