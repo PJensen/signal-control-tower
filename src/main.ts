@@ -2,7 +2,8 @@
 
 import { randomUUID } from "node:crypto";
 import { execFile } from "node:child_process";
-import { readFile, rename, writeFile } from "node:fs/promises";
+import { readFile, rename, unlink, writeFile } from "node:fs/promises";
+import { homedir } from "node:os";
 import { join, resolve } from "node:path";
 import { promisify } from "node:util";
 
@@ -62,8 +63,18 @@ async function persistModelPreset(
   const temporaryPath = `${path}.${process.pid}.tmp`;
   await writeFile(temporaryPath, `${JSON.stringify(root, null, 2)}\n`, { mode: 0o600 });
   await rename(temporaryPath, path);
+  await invalidateCodexModelCache();
   config.codex.model = preset.model;
   config.codex.reasoningEffort = preset.reasoningEffort;
+}
+
+async function invalidateCodexModelCache(): Promise<void> {
+  const codexHome = process.env.CODEX_HOME?.trim() || join(homedir(), ".codex");
+  try {
+    await unlink(join(codexHome, "models_cache.json"));
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+  }
 }
 
 function group(value: unknown, groupId: string): Record<string, unknown> | undefined {
@@ -322,10 +333,12 @@ async function run(): Promise<void> {
       try {
         await persistModelPreset(options.configPath, config, preset);
         await signal.sendGroupMessage(
-          `✓ Model set to ${command.alias} (${preset.model}, ${preset.reasoningEffort}). Applies to the next request.`,
+          `✓ Model set to ${command.alias} (${preset.model}, ${preset.reasoningEffort}). Codex model cache cleared; applies to the next request.`,
         );
       } catch (error) {
-        await signal.sendGroupMessage(`✗ could not save model setting\n${(error as Error).message}`);
+        await signal.sendGroupMessage(
+          `✗ could not save model setting\n${(error as Error).message}`,
+        );
       }
       return;
     }
